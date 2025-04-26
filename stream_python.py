@@ -5,7 +5,7 @@ import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-CSV_FILE = r"D:\all_dta\resolute_corp\Gs_sheet_project\ALL_DATA.csv"
+CSV_FILE = "ALL_DATA.csv"
 
 # ====== FULLSCREEN CONFIGURATION ======
 # st.set_page_config(layout="wide")  # Maximize horizontal space
