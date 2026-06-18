@@ -245,6 +245,94 @@ OPT_DAYWISE = {
     ],
 }
 
+# ── Iron Condor data ───────────────────────────────────────────────────────────
+
+IC_RUNS = [
+    dict(name="OTM1/3 Weekly",  short_otm=1, long_otm=3, expiry="Weekly",  sl="₹15k",
+         returns=-1618,  win_rate_daily=56.7, win_rate_trades=47.9, sharpe=-0.39,
+         sortino=-0.45, calmar=-0.17, max_dd=-9698,  max_dd_pct=6.47, trades=240, cagr=-1.08),
+    dict(name="OTM2/4 Weekly",  short_otm=2, long_otm=4, expiry="Weekly",  sl="₹15k",
+         returns=995,    win_rate_daily=61.7, win_rate_trades=48.8, sharpe=0.22,
+         sortino=0.21,  calmar=0.13,  max_dd=-7690,  max_dd_pct=5.13, trades=240, cagr=0.66),
+    dict(name="OTM3/5 Weekly",  short_otm=3, long_otm=5, expiry="Weekly",  sl="₹15k",
+         returns=117,    win_rate_daily=55.0, win_rate_trades=47.9, sharpe=0.03,
+         sortino=0.02,  calmar=0.01,  max_dd=-8843,  max_dd_pct=5.90, trades=240, cagr=0.08),
+    dict(name="OTM2/4 Monthly", short_otm=2, long_otm=4, expiry="Monthly", sl="₹15k",
+         returns=3416,   win_rate_daily=51.7, win_rate_trades=49.2, sharpe=2.22,
+         sortino=3.92,  calmar=2.81,  max_dd=-1209,  max_dd_pct=0.81, trades=240, cagr=2.28),
+]
+
+IC_DAYWISE = {
+    "OTM1/3 Weekly": [
+        ("2026-03-18", -302.2), ("2026-03-19", -546.0), ("2026-03-20", -507.0), ("2026-03-23", -91.0),
+        ("2026-03-24", 932.8), ("2026-03-25", 890.6), ("2026-03-27", 942.6), ("2026-03-30", -448.4),
+        ("2026-04-01", -350.9), ("2026-04-02", -601.1), ("2026-04-06", -425.6), ("2026-04-07", -2369.1),
+        ("2026-04-08", -2245.6), ("2026-04-09", -2369.1), ("2026-04-10", -2242.3), ("2026-04-13", -4458.8),
+        ("2026-04-15", -4426.3), ("2026-04-16", -4387.3), ("2026-04-17", -4367.8), ("2026-04-20", -4354.8),
+        ("2026-04-21", -5524.8), ("2026-04-22", -5560.6), ("2026-04-23", -5427.4), ("2026-04-24", -5492.4),
+        ("2026-04-27", -5196.6), ("2026-04-28", -6724.1), ("2026-04-29", -6525.9), ("2026-04-30", -6649.4),
+        ("2026-05-04", -6343.9), ("2026-05-05", -2489.4), ("2026-05-06", -2629.2), ("2026-05-07", -2512.2),
+        ("2026-05-08", -2359.4), ("2026-05-11", -2021.4), ("2026-05-12", -4959.4), ("2026-05-13", -4978.9),
+        ("2026-05-14", -4920.4), ("2026-05-15", -4546.6), ("2026-05-18", -5047.1), ("2026-05-19", -6327.6),
+        ("2026-05-20", -6486.8), ("2026-05-21", -6509.6), ("2026-05-22", -6353.6), ("2026-05-25", -5905.1),
+        ("2026-05-26", -5193.3), ("2026-05-27", -4871.5), ("2026-05-29", -5069.7), ("2026-06-01", -5570.2),
+        ("2026-06-02", -8716.2), ("2026-06-03", -8726.0), ("2026-06-04", -8755.2), ("2026-06-05", -8423.7),
+        ("2026-06-08", -8079.2), ("2026-06-09", -5030.7), ("2026-06-10", -4874.7), ("2026-06-11", -4679.7),
+        ("2026-06-12", -4770.7), ("2026-06-15", -4718.7), ("2026-06-16", -1751.5), ("2026-06-17", -1618.3),
+    ],
+    "OTM2/4 Weekly": [
+        ("2026-03-18", -256.8), ("2026-03-19", -422.6), ("2026-03-20", -568.8), ("2026-03-23", -302.3),
+        ("2026-03-24", 3116.7), ("2026-03-25", 3175.2), ("2026-03-27", 3542.4), ("2026-03-30", 2414.6),
+        ("2026-04-01", 2521.8), ("2026-04-02", 2385.3), ("2026-04-06", 2278.1), ("2026-04-07", -812.7),
+        ("2026-04-08", -601.5), ("2026-04-09", -487.7), ("2026-04-10", -500.7), ("2026-04-13", -3701.9),
+        ("2026-04-15", -3818.9), ("2026-04-16", -3971.7), ("2026-04-17", -3952.2), ("2026-04-20", -3884.0),
+        ("2026-04-21", -2918.8), ("2026-04-22", -2886.3), ("2026-04-23", -2779.1), ("2026-04-24", -2759.6),
+        ("2026-04-27", -2444.4), ("2026-04-28", -1865.9), ("2026-04-29", -2077.1), ("2026-04-30", -2129.1),
+        ("2026-05-04", -1826.9), ("2026-05-05", 789.3), ("2026-05-06", 584.5), ("2026-05-07", 695.0),
+        ("2026-05-08", 984.2), ("2026-05-11", 1637.4), ("2026-05-12", -2538.8), ("2026-05-13", -2519.3),
+        ("2026-05-14", -2626.5), ("2026-05-15", -2246.3), ("2026-05-18", -2776.1), ("2026-05-19", -1986.3),
+        ("2026-05-20", -2025.3), ("2026-05-21", -2113.1), ("2026-05-22", -1791.3), ("2026-05-25", -1489.1),
+        ("2026-05-26", 386.1), ("2026-05-27", 535.6), ("2026-05-29", -75.4), ("2026-06-01", -910.6),
+        ("2026-06-02", -4147.6), ("2026-06-03", -4147.6), ("2026-06-04", -4089.1), ("2026-06-05", -3699.1),
+        ("2026-06-08", -3042.6), ("2026-06-09", -1144.6), ("2026-06-10", -972.4), ("2026-06-11", -809.9),
+        ("2026-06-12", -1014.7), ("2026-06-15", -930.2), ("2026-06-16", 818.3), ("2026-06-17", 993.8),
+    ],
+    "OTM3/5 Weekly": [
+        ("2026-03-18", -172.2), ("2026-03-19", -289.2), ("2026-03-20", -503.7), ("2026-03-23", -298.9),
+        ("2026-03-24", 2895.9), ("2026-03-25", 2824.4), ("2026-03-27", 3207.9), ("2026-03-30", 4459.1),
+        ("2026-04-01", 4566.3), ("2026-04-02", 3994.3), ("2026-04-06", 3474.3), ("2026-04-07", -467.9),
+        ("2026-04-08", -367.1), ("2026-04-09", -243.6), ("2026-04-10", -289.1), ("2026-04-13", -3669.1),
+        ("2026-04-15", -3841.3), ("2026-04-16", -4085.1), ("2026-04-17", -4276.9), ("2026-04-20", -4179.4),
+        ("2026-04-21", -2599.9), ("2026-04-22", -2583.7), ("2026-04-23", -2401.7), ("2026-04-24", -2531.7),
+        ("2026-04-27", -2180.7), ("2026-04-28", -1052.9), ("2026-04-29", -1306.4), ("2026-04-30", -1338.9),
+        ("2026-05-04", -1078.9), ("2026-05-05", 679.3), ("2026-05-06", 351.1), ("2026-05-07", 435.6),
+        ("2026-05-08", 705.4), ("2026-05-11", 1462.6), ("2026-05-12", -3584.6), ("2026-05-13", -3630.1),
+        ("2026-05-14", -3818.6), ("2026-05-15", -3493.6), ("2026-05-18", -4172.8), ("2026-05-19", -2638.8),
+        ("2026-05-20", -2697.3), ("2026-05-21", -2703.8), ("2026-05-22", -2278.0), ("2026-05-25", -1884.8),
+        ("2026-05-26", -792.8), ("2026-05-27", -617.3), ("2026-05-29", -1420.1), ("2026-06-01", -2362.6),
+        ("2026-06-02", -3204.4), ("2026-06-03", -3418.9), ("2026-06-04", -3259.7), ("2026-06-05", -2924.9),
+        ("2026-06-08", -2122.1), ("2026-06-09", -1017.1), ("2026-06-10", -718.1), ("2026-06-11", -581.6),
+        ("2026-06-12", -1000.8), ("2026-06-15", -945.6), ("2026-06-16", -12.8), ("2026-06-17", 117.2),
+    ],
+    "OTM2/4 Monthly": [
+        ("2026-03-18", 185.2), ("2026-03-19", 490.7), ("2026-03-20", 305.5), ("2026-03-23", 286.0),
+        ("2026-03-24", 565.5), ("2026-03-25", 624.0), ("2026-03-27", 991.2), ("2026-03-30", -136.6),
+        ("2026-04-01", 61.6), ("2026-04-02", 1485.1), ("2026-04-06", 1033.3), ("2026-04-07", 643.3),
+        ("2026-04-08", 409.3), ("2026-04-09", 851.3), ("2026-04-10", 555.5), ("2026-04-13", 656.3),
+        ("2026-04-15", 760.3), ("2026-04-16", 760.3), ("2026-04-17", 620.5), ("2026-04-20", 526.3),
+        ("2026-04-21", 432.1), ("2026-04-22", 464.6), ("2026-04-23", 571.8), ("2026-04-24", 591.3),
+        ("2026-04-27", 906.5), ("2026-04-28", 1485.0), ("2026-04-29", 1283.5), ("2026-04-30", 1673.5),
+        ("2026-05-04", 1127.5), ("2026-05-05", 844.7), ("2026-05-06", 701.7), ("2026-05-07", 678.9),
+        ("2026-05-08", 675.7), ("2026-05-11", 877.2), ("2026-05-12", 893.4), ("2026-05-13", 821.9),
+        ("2026-05-14", 994.1), ("2026-05-15", 1237.9), ("2026-05-18", 1189.1), ("2026-05-19", 1488.1),
+        ("2026-05-20", 1449.1), ("2026-05-21", 1361.3), ("2026-05-22", 1683.1), ("2026-05-25", 1985.3),
+        ("2026-05-26", 3860.5), ("2026-05-27", 4091.3), ("2026-05-29", 3655.8), ("2026-06-01", 3613.6),
+        ("2026-06-02", 3516.1), ("2026-06-03", 3490.1), ("2026-06-04", 3256.1), ("2026-06-05", 3155.3),
+        ("2026-06-08", 2882.3), ("2026-06-09", 3109.8), ("2026-06-10", 3139.0), ("2026-06-11", 3243.0),
+        ("2026-06-12", 3213.8), ("2026-06-15", 3392.6), ("2026-06-16", 3314.6), ("2026-06-17", 3415.4),
+    ],
+}
+
 COLORS = [
     "#2196F3", "#FF9800", "#F44336", "#4CAF50",
     "#9C27B0", "#00BCD4", "#FF5722", "#3F51B5", "#8BC34A",
@@ -252,13 +340,13 @@ COLORS = [
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
-st.title("Supertrend Parameter Optimization — NIFTY")
+st.title("NIFTY Strategy Backtest Dashboard")
 st.markdown(
     "**18 Mar – 17 Jun 2026 · 15-min candles**  "
-    "Two strategies tested: Supertrend on Futures price and Supertrend on ATM Options price."
+    "Three strategies tested: Supertrend on Futures, Supertrend on ATM Options, and Iron Condor parameter sweep."
 )
 
-tab_fut, tab_opt = st.tabs(["Futures ST", "Options ST"])
+tab_fut, tab_opt, tab_ic = st.tabs(["Futures ST", "Options ST", "Iron Condor"])
 
 # ── Futures ST Tab ─────────────────────────────────────────────────────────────
 
@@ -532,4 +620,194 @@ with tab_opt:
 Tested 6 parameter combinations: lengths {7, 10, 14} × multipliers {2.0, 3.0}.
 **Key finding:** Multiplier=2 profitable across all lengths; Multiplier=3 consistently loss-making.
 **Optimal setting: Length=14, Multiplier=2.0** — highest Sharpe (1.38), lowest max drawdown (27.7%), CAGR 21.3%.
+        """)
+
+# ── Iron Condor Tab ─────────────────────────────────────────────────────────────
+
+with tab_ic:
+    st.markdown(
+        "**NIFTY Weekly & Monthly Options · Short OTM2 CE+PE / Long OTM4 CE+PE · Entry 9:20 · Exit 15:15**  "
+        "Sweep across short strike width (OTM1/3/5), wing gap (2 strikes), combined SL, and expiry (weekly vs monthly)."
+    )
+    st.divider()
+
+    ic_best = next(r for r in IC_RUNS if r["name"] == "OTM2/4 Monthly")
+    st.subheader("Best Performer — OTM2/4 Monthly Expiry")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Return", f"₹{ic_best['returns']:,.0f}", f"{ic_best['cagr']:.2f}% CAGR")
+    c2.metric("Sharpe Ratio", f"{ic_best['sharpe']:.2f}")
+    c3.metric("Sortino Ratio", f"{ic_best['sortino']:.2f}")
+    c4.metric("Max Drawdown", f"{ic_best['max_dd_pct']:.2f}%", f"₹{ic_best['max_dd']:,.0f}")
+    c5.metric("Win Rate (Daily)", f"{ic_best['win_rate_daily']:.1f}%", f"{ic_best['trades']} trades")
+
+    st.divider()
+
+    st.info(
+        "**Key finding — Combined SL is irrelevant for this structure:**  "
+        "The 2-strike wing gap caps maximum intraday loss to ~₹7,700, well below any tested SL level (₹10k–₹20k). "
+        "No-SL, ₹10k SL, ₹15k SL, and ₹20k SL all produce identical results for OTM2/4 weekly."
+    )
+
+    st.subheader("Cumulative P&L Curves")
+    ic_selected = st.multiselect(
+        "Select variants to display:",
+        options=[r["name"] for r in IC_RUNS],
+        default=[r["name"] for r in IC_RUNS],
+        key="ic_select",
+    )
+
+    IC_COLORS = {"OTM1/3 Weekly": "#F44336", "OTM2/4 Weekly": "#FF9800",
+                 "OTM3/5 Weekly": "#2196F3", "OTM2/4 Monthly": "#4CAF50"}
+
+    fig_ic_pnl = go.Figure()
+    for run in IC_RUNS:
+        if run["name"] not in ic_selected:
+            continue
+        pts = IC_DAYWISE[run["name"]]
+        dates = [p[0] for p in pts]
+        vals = [p[1] for p in pts]
+        is_best = run["name"] == "OTM2/4 Monthly"
+        fig_ic_pnl.add_trace(go.Scatter(
+            x=dates, y=vals, mode="lines",
+            name=f"{run['name']}  (R={run['returns']:+,.0f}, Sh={run['sharpe']:.2f})",
+            line=dict(
+                color=IC_COLORS.get(run["name"], "#9C27B0"),
+                width=3 if is_best else 1.5,
+                dash="solid" if run["returns"] >= 0 else "dot",
+            ),
+            opacity=1.0 if is_best else 0.8,
+        ))
+
+    fig_ic_pnl.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
+    fig_ic_pnl.update_layout(
+        height=450, xaxis_title="Date", yaxis_title="Cumulative P&L (₹)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    fig_ic_pnl.update_xaxes(showgrid=True, gridcolor="#e0e0e0")
+    fig_ic_pnl.update_yaxes(showgrid=True, gridcolor="#e0e0e0", tickprefix="₹", tickformat=",")
+    st.plotly_chart(fig_ic_pnl, use_container_width=True)
+
+    st.divider()
+
+    st.subheader("All Variants — Metrics Comparison")
+    df_ic_metrics = pd.DataFrame([
+        {
+            "Variant": r["name"], "Short Strike": f"OTM{r['short_otm']}",
+            "Long Strike": f"OTM{r['long_otm']}", "Expiry": r["expiry"],
+            "Total Return (₹)": r["returns"], "CAGR %": r["cagr"],
+            "Win Rate % (Daily)": r["win_rate_daily"], "Win Rate % (Trade)": r["win_rate_trades"],
+            "Sharpe": r["sharpe"], "Sortino": r["sortino"], "Calmar": r["calmar"],
+            "Max DD (₹)": r["max_dd"], "Max DD %": r["max_dd_pct"], "Trades": r["trades"],
+        }
+        for r in IC_RUNS
+    ]).set_index("Variant")
+
+    def color_returns_ic(val):
+        color = "#1a9641" if val > 0 else "#d7191c"
+        return f"color: {color}; font-weight: bold"
+
+    def color_sharpe_ic(val):
+        if val > 1:
+            return "color: #1a9641; font-weight: bold"
+        elif val > 0:
+            return "color: #fdae61"
+        return "color: #d7191c"
+
+    styled_ic = (
+        df_ic_metrics.style
+        .format({
+            "Total Return (₹)": "₹{:,.0f}", "CAGR %": "{:+.2f}%",
+            "Win Rate % (Daily)": "{:.1f}%", "Win Rate % (Trade)": "{:.1f}%",
+            "Sharpe": "{:.2f}", "Sortino": "{:.2f}", "Calmar": "{:.2f}",
+            "Max DD (₹)": "₹{:,.0f}", "Max DD %": "{:.2f}%",
+        })
+        .applymap(color_returns_ic, subset=["Total Return (₹)", "CAGR %"])
+        .applymap(color_sharpe_ic, subset=["Sharpe"])
+        .highlight_max(subset=["Total Return (₹)", "CAGR %", "Sharpe", "Sortino", "Calmar"], color="#d4edda")
+        .highlight_min(subset=["Max DD %"], color="#d4edda")
+        .highlight_min(subset=["Total Return (₹)", "CAGR %", "Sharpe"], color="#f8d7da")
+    )
+    st.dataframe(styled_ic, use_container_width=True, height=210)
+
+    st.divider()
+
+    st.subheader("Strike Width vs Expiry — Sharpe Comparison")
+    col_ic1, col_ic2 = st.columns(2)
+
+    with col_ic1:
+        weekly_runs = [r for r in IC_RUNS if r["expiry"] == "Weekly"]
+        fig_sw = go.Figure(go.Bar(
+            x=[f"OTM{r['short_otm']}/{r['long_otm']}" for r in weekly_runs],
+            y=[r["sharpe"] for r in weekly_runs],
+            marker_color=["#F44336" if r["sharpe"] < 0 else "#4CAF50" for r in weekly_runs],
+            text=[f"{r['sharpe']:.2f}" for r in weekly_runs],
+            textposition="outside",
+        ))
+        fig_sw.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
+        fig_sw.update_layout(
+            title="Strike Width — Weekly Expiry (Sharpe)", height=300,
+            margin=dict(l=0, r=0, t=40, b=0),
+            yaxis_title="Sharpe Ratio",
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_sw, use_container_width=True)
+
+    with col_ic2:
+        otm24_runs = [r for r in IC_RUNS if r["short_otm"] == 2 and r["long_otm"] == 4]
+        fig_exp = go.Figure(go.Bar(
+            x=[r["expiry"] for r in otm24_runs],
+            y=[r["sharpe"] for r in otm24_runs],
+            marker_color=["#FF9800", "#4CAF50"],
+            text=[f"Sh={r['sharpe']:.2f}\nDD={r['max_dd_pct']:.2f}%" for r in otm24_runs],
+            textposition="outside",
+        ))
+        fig_exp.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
+        fig_exp.update_layout(
+            title="OTM2/4 — Weekly vs Monthly (Sharpe)", height=300,
+            margin=dict(l=0, r=0, t=40, b=0),
+            yaxis_title="Sharpe Ratio",
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_exp, use_container_width=True)
+
+    st.divider()
+
+    with st.expander("Strategy Details & Key Findings"):
+        st.markdown("""
+**Instrument:** NIFTY Weekly / Monthly Options
+**Structure:** Iron Condor — Short OTM CE + Short OTM PE + Long OTM CE + Long OTM PE (2-strike wing gap)
+**Entry:** 9:20 AM market open (1 lot per leg, 4 legs total)
+**Exit:** EOD square-off at 15:15, or combined P&L SL trigger
+**Capital:** ₹1,50,000
+
+---
+
+**Sweep dimensions tested (6 runs + baseline):**
+1. **Strike width** — Short OTM1/Long OTM3, OTM2/OTM4, OTM3/OTM5 (weekly, ₹15k SL)
+2. **Combined SL** — No SL, ₹10k, ₹15k, ₹20k (OTM2/4, weekly)
+3. **Expiry** — Weekly vs Monthly (OTM2/4, ₹15k SL)
+
+---
+
+**Key findings:**
+
+**1. Wing structure makes combined SL redundant**
+The 2-strike wing gap caps the theoretical maximum loss per side to ~₹2,500 (2 × 50pt strike gap × 25 lot size).
+Combined max daily loss stays below ₹7,700 in all scenarios — well under any tested SL level.
+Result: No-SL = ₹10k SL = ₹15k SL = ₹20k SL (identical outcomes).
+
+**2. OTM2/4 is the optimal strike width for weekly IC**
+- OTM1/3 (too close to ATM): higher delta/gamma exposure → bigger losing days → Sharpe -0.39
+- OTM2/4 (baseline): balanced premium vs risk → Sharpe 0.22
+- OTM3/5 (too far OTM): lower premium collected → near break-even → Sharpe 0.03
+
+**3. Monthly expiry dramatically outperforms weekly**
+- Weekly IC (OTM2/4): Sharpe 0.22, Max DD 5.13%, Returns ₹995
+- Monthly IC (OTM2/4): **Sharpe 2.22, Max DD 0.81%, Returns ₹3,416**
+- Monthly options carry more time value per contract and lower gamma risk —
+  intraday moves cause smaller % swings in option prices, producing a much smoother equity curve.
+
+**Recommended setup: Short OTM2 / Long OTM4 / Monthly expiry / No SL needed**
         """)
