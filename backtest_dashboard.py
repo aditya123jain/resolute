@@ -8,7 +8,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── Static backtest data ───────────────────────────────────────────────────────
+# ── Futures ST data ────────────────────────────────────────────────────────────
 
 RUNS = [
     dict(name="L7-M2",  length=7,  mult=2.0, returns=45408.9,  win_rate=50.0, sharpe=1.85,
@@ -135,6 +135,116 @@ DAYWISE = {
     ],
 }
 
+# ── Options ST data ────────────────────────────────────────────────────────────
+
+OPT_RUNS = [
+    dict(name="L7-M2",  length=7,  mult=2.0, returns=20660,   win_rate=49.2, sharpe=0.85,
+         sortino=1.43,  calmar=0.36,  max_dd=-57808, max_dd_pct=38.54, trades=126, cagr=13.77, pf=1.1),
+    dict(name="L7-M3",  length=7,  mult=3.0, returns=-2776,   win_rate=50.5, sharpe=-0.13,
+         sortino=-0.19, calmar=-0.06, max_dd=-43752, max_dd_pct=29.17, trades=91,  cagr=-1.85, pf=1.0),
+    dict(name="L10-M2", length=10, mult=2.0, returns=28356,   win_rate=50.4, sharpe=1.18,
+         sortino=1.95,  calmar=0.65,  max_dd=-43888, max_dd_pct=29.26, trades=123, cagr=18.90, pf=1.2),
+    dict(name="L10-M3", length=10, mult=3.0, returns=-45770,  win_rate=46.4, sharpe=-2.02,
+         sortino=-2.97, calmar=-0.59, max_dd=-77071, max_dd_pct=51.38, trades=97,  cagr=-30.51, pf=0.8),
+    dict(name="L14-M2", length=14, mult=2.0, returns=31876,   win_rate=50.4, sharpe=1.38,
+         sortino=2.13,  calmar=0.77,  max_dd=-41470, max_dd_pct=27.65, trades=123, cagr=21.25, pf=1.2),
+    dict(name="L14-M3", length=14, mult=3.0, returns=-53635,  win_rate=46.5, sharpe=-2.30,
+         sortino=-3.53, calmar=-0.61, max_dd=-87305, max_dd_pct=58.20, trades=99,  cagr=-35.76, pf=0.8),
+]
+
+OPT_DAYWISE = {
+    "L7-M2": [
+        ("2026-03-19", 12294.8), ("2026-03-20", 8970), ("2026-03-23", 6825), ("2026-03-24", -4358.2),
+        ("2026-03-25", -3285.7), ("2026-03-30", -16574.9), ("2026-04-01", -33614.7), ("2026-04-02", -10318.7),
+        ("2026-04-06", -11517.9), ("2026-04-07", -16100.4), ("2026-04-09", -11998.9), ("2026-04-10", -18030.9),
+        ("2026-04-13", -24196.1), ("2026-04-16", -25700.9), ("2026-04-20", -31758.9), ("2026-04-21", -27377.9),
+        ("2026-04-22", -26968.4), ("2026-04-23", -39191.6), ("2026-04-24", -40459.1), ("2026-04-27", -45512.9),
+        ("2026-04-28", -39620.7), ("2026-04-29", -24215.7), ("2026-04-30", -17588.9), ("2026-05-04", -19584.4),
+        ("2026-05-05", -24218.9), ("2026-05-06", -10949.1), ("2026-05-07", -22389.1), ("2026-05-08", -24888.3),
+        ("2026-05-11", -24976.1), ("2026-05-13", -28027.9), ("2026-05-14", -28382.1), ("2026-05-15", -27696.3),
+        ("2026-05-18", -22519.1), ("2026-05-19", -20156.3), ("2026-05-20", -13708.3), ("2026-05-21", -11514.5),
+        ("2026-05-22", -12275), ("2026-05-25", -8098.8), ("2026-05-26", -4478.3), ("2026-05-27", -8605.8),
+        ("2026-05-29", 94.4), ("2026-06-02", -168.8), ("2026-06-03", 1488.7), ("2026-06-04", -4741.5),
+        ("2026-06-05", -8508.3), ("2026-06-08", -6100.1), ("2026-06-09", -2109.1), ("2026-06-10", 5203.4),
+        ("2026-06-11", 6002.9), ("2026-06-12", 21271.4), ("2026-06-17", 20660.4),
+    ],
+    "L7-M3": [
+        ("2026-03-19", 18791.5), ("2026-03-20", 3679), ("2026-03-24", -8479.2), ("2026-03-27", 7257.3),
+        ("2026-03-30", -3266.2), ("2026-04-01", -20306), ("2026-04-02", -5902), ("2026-04-06", -15070.2),
+        ("2026-04-07", -22272.2), ("2026-04-09", -21274.4), ("2026-04-10", -13721.4), ("2026-04-13", -24959.9),
+        ("2026-04-15", -24274.1), ("2026-04-16", -24589.3), ("2026-04-17", -17029.8), ("2026-04-20", -19347),
+        ("2026-04-21", -14966), ("2026-04-22", -17338.5), ("2026-04-23", -16480.5), ("2026-04-27", -14413.5),
+        ("2026-04-28", -12626), ("2026-04-29", -4634.2), ("2026-04-30", -3038.4), ("2026-05-04", -11702.9),
+        ("2026-05-05", -11225.1), ("2026-05-06", -7913.3), ("2026-05-08", -8280.5), ("2026-05-13", -13253),
+        ("2026-05-15", -11787.2), ("2026-05-18", -10055), ("2026-05-19", -8881.8), ("2026-05-20", -12908.6),
+        ("2026-05-21", -14484.8), ("2026-05-22", -19447.6), ("2026-05-25", -16031.8), ("2026-05-26", -13376.6),
+        ("2026-05-27", -14315.8), ("2026-05-29", -11316), ("2026-06-02", -10445), ("2026-06-03", -8787.5),
+        ("2026-06-04", -11179.5), ("2026-06-05", -14127.3), ("2026-06-09", -10136.3), ("2026-06-10", -6034.8),
+        ("2026-06-11", -12222.8), ("2026-06-12", -2086), ("2026-06-17", -2775),
+    ],
+    "L10-M2": [
+        ("2026-03-19", 12294.8), ("2026-03-20", 8970), ("2026-03-23", 6825), ("2026-03-24", -4358.2),
+        ("2026-03-25", -3285.7), ("2026-03-27", 3038.8), ("2026-03-30", -10250.4), ("2026-04-01", -27290.2),
+        ("2026-04-02", -4231.4), ("2026-04-06", -5430.6), ("2026-04-07", -10013.1), ("2026-04-09", -9015.3),
+        ("2026-04-10", -9288.3), ("2026-04-13", -19070.8), ("2026-04-16", -20416.3), ("2026-04-20", -26474.3),
+        ("2026-04-21", -22093.3), ("2026-04-22", -21683.8), ("2026-04-23", -20825.8), ("2026-04-24", -22957.8),
+        ("2026-04-27", -31593), ("2026-04-28", -25700.8), ("2026-04-29", -12736.6), ("2026-04-30", -7052.4),
+        ("2026-05-04", -9369.6), ("2026-05-05", -16305.1), ("2026-05-06", -2573.9), ("2026-05-07", -12798.4),
+        ("2026-05-08", -12265.4), ("2026-05-11", -15551.2), ("2026-05-13", -16526.2), ("2026-05-14", -13474.4),
+        ("2026-05-15", -12788.6), ("2026-05-18", -7611.4), ("2026-05-19", -5700.4), ("2026-05-20", 2161.4),
+        ("2026-05-21", 4355.2), ("2026-05-22", 3594.7), ("2026-05-25", 7770.9), ("2026-05-26", 10939.7),
+        ("2026-05-27", 6812.2), ("2026-05-29", 15512.4), ("2026-06-02", 15249.2), ("2026-06-03", 16906.7),
+        ("2026-06-04", 10676.5), ("2026-06-05", 6909.7), ("2026-06-08", 4124.5), ("2026-06-09", 8115.5),
+        ("2026-06-10", 15428), ("2026-06-11", 13699), ("2026-06-12", 28967.5), ("2026-06-17", 28356.5),
+    ],
+    "L10-M3": [
+        ("2026-03-19", 18791.5), ("2026-03-20", 3679), ("2026-03-24", -8479.2), ("2026-03-27", 7257.3),
+        ("2026-03-30", -2954.2), ("2026-04-01", -19994), ("2026-04-02", -12200.5), ("2026-04-06", -19480.5),
+        ("2026-04-07", -26682.5), ("2026-04-08", -23793.3), ("2026-04-09", -22795.5), ("2026-04-10", -15463.5),
+        ("2026-04-13", -25574.3), ("2026-04-15", -25551.5), ("2026-04-16", -24579.7), ("2026-04-17", -17952.9),
+        ("2026-04-20", -28008.4), ("2026-04-21", -23627.4), ("2026-04-22", -25999.9), ("2026-04-23", -34381.7),
+        ("2026-04-24", -31521.7), ("2026-04-27", -28661.7), ("2026-04-28", -25824.5), ("2026-04-29", -20894.3),
+        ("2026-04-30", -18690.8), ("2026-05-04", -24173.6), ("2026-05-05", -22256.1), ("2026-05-06", -35860.6),
+        ("2026-05-07", -40969.6), ("2026-05-08", -41336.8), ("2026-05-11", -45831.6), ("2026-05-13", -52312.1),
+        ("2026-05-14", -53859.1), ("2026-05-15", -52393.3), ("2026-05-18", -53413.8), ("2026-05-19", -52240.6),
+        ("2026-05-20", -53852.6), ("2026-05-21", -55428.8), ("2026-05-22", -58279), ("2026-05-26", -55152.5),
+        ("2026-05-27", -56091.7), ("2026-05-29", -53091.9), ("2026-06-02", -52220.9), ("2026-06-03", -51336.9),
+        ("2026-06-04", -53728.9), ("2026-06-05", -57121.9), ("2026-06-09", -53130.9), ("2026-06-10", -49029.4),
+        ("2026-06-11", -55217.4), ("2026-06-12", -45080.6), ("2026-06-17", -45769.6),
+    ],
+    "L14-M2": [
+        ("2026-03-19", 12294.8), ("2026-03-20", 5066.8), ("2026-03-23", 3688.8), ("2026-03-24", -7494.4),
+        ("2026-03-25", -3207.6), ("2026-03-27", 3116.9), ("2026-03-30", -10172.3), ("2026-04-01", -27212.1),
+        ("2026-04-02", -10409.6), ("2026-04-06", -11608.8), ("2026-04-07", -16191.3), ("2026-04-09", -15193.5),
+        ("2026-04-10", -15466.5), ("2026-04-13", -25249), ("2026-04-16", -24836.2), ("2026-04-20", -28778.4),
+        ("2026-04-21", -24397.4), ("2026-04-22", -23987.9), ("2026-04-23", -23129.9), ("2026-04-24", -19840.9),
+        ("2026-04-27", -28476.1), ("2026-04-28", -29174.9), ("2026-04-29", -16210.7), ("2026-04-30", -10526.5),
+        ("2026-05-04", -15294.3), ("2026-05-05", -18609.3), ("2026-05-06", -5203.1), ("2026-05-07", -15427.6),
+        ("2026-05-08", -13675.8), ("2026-05-11", -16961.6), ("2026-05-13", -17936.6), ("2026-05-14", -14884.8),
+        ("2026-05-15", -12632.6), ("2026-05-18", -7455.4), ("2026-05-19", -5544.4), ("2026-05-20", 3172.1),
+        ("2026-05-21", 5365.9), ("2026-05-22", 2827.7), ("2026-05-25", 7003.9), ("2026-05-26", 10172.7),
+        ("2026-05-27", 6402.7), ("2026-05-29", 15102.9), ("2026-06-01", 13175.7), ("2026-06-02", 13377.2),
+        ("2026-06-03", 15034.7), ("2026-06-04", 15372.7), ("2026-06-05", 11605.9), ("2026-06-08", 7855.4),
+        ("2026-06-09", 11846.4), ("2026-06-10", 19158.9), ("2026-06-11", 17218.7), ("2026-06-12", 32487.2),
+        ("2026-06-17", 31876.2),
+    ],
+    "L14-M3": [
+        ("2026-03-19", 18791.5), ("2026-03-20", 3679), ("2026-03-24", 8485.8), ("2026-03-27", 24222.3),
+        ("2026-03-30", 10933.1), ("2026-04-01", -4634.4), ("2026-04-02", 3159.1), ("2026-04-06", -4120.9),
+        ("2026-04-07", -11322.9), ("2026-04-08", -8433.7), ("2026-04-09", -7435.9), ("2026-04-10", -1358.4),
+        ("2026-04-13", -11140.9), ("2026-04-15", -11118.1), ("2026-04-16", -10614.3), ("2026-04-17", -4042.8),
+        ("2026-04-20", -12135.3), ("2026-04-21", -7754.3), ("2026-04-22", -10126.8), ("2026-04-23", -18508.6),
+        ("2026-04-24", -12990.1), ("2026-04-27", -10130.1), ("2026-04-29", -5199.9), ("2026-04-30", -2590.1),
+        ("2026-05-04", -7357.9), ("2026-05-05", -5440.4), ("2026-05-06", -19044.9), ("2026-05-07", -31469.7),
+        ("2026-05-08", -31836.9), ("2026-05-11", -35717.4), ("2026-05-13", -42197.9), ("2026-05-14", -53982.4),
+        ("2026-05-15", -51652.2), ("2026-05-18", -50014.2), ("2026-05-19", -49029.4), ("2026-05-20", -56231.4),
+        ("2026-05-21", -57807.6), ("2026-05-22", -61002.4), ("2026-05-25", -60241.9), ("2026-05-26", -57115.4),
+        ("2026-05-27", -58054.6), ("2026-05-29", -55054.8), ("2026-06-02", -54183.8), ("2026-06-03", -56904),
+        ("2026-06-04", -59296), ("2026-06-05", -62689), ("2026-06-09", -58698), ("2026-06-10", -56894.2),
+        ("2026-06-11", -63082.2), ("2026-06-12", -52945.4), ("2026-06-17", -53634.4),
+    ],
+}
+
 COLORS = [
     "#2196F3", "#FF9800", "#F44336", "#4CAF50",
     "#9C27B0", "#00BCD4", "#FF5722", "#3F51B5", "#8BC34A",
@@ -142,178 +252,144 @@ COLORS = [
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
-st.title("Supertrend Parameter Optimization")
+st.title("Supertrend Parameter Optimization — NIFTY")
 st.markdown(
-    "**NIFTY Futures · 15-min candles · 18 Mar – 17 Jun 2026**  "
-    "Strategy: Buy futures on ST bullish crossover, Sell on bearish crossover, exit EOD."
+    "**18 Mar – 17 Jun 2026 · 15-min candles**  "
+    "Two strategies tested: Supertrend on Futures price and Supertrend on ATM Options price."
 )
 
-st.divider()
+tab_fut, tab_opt = st.tabs(["Futures ST", "Options ST"])
 
-# ── Best performer callout ─────────────────────────────────────────────────────
+# ── Futures ST Tab ─────────────────────────────────────────────────────────────
 
-best = next(r for r in RUNS if r["name"] == "L10-M2")
-st.subheader("Best Performer — Length 10, Multiplier 2.0")
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Total Return", f"₹{best['returns']:,.0f}", f"{best['cagr']:.1f}% CAGR")
-c2.metric("Sharpe Ratio", f"{best['sharpe']:.2f}")
-c3.metric("Sortino Ratio", f"{best['sortino']:.2f}")
-c4.metric("Max Drawdown", f"{best['max_dd_pct']:.1f}%")
-c5.metric("Win Rate", f"{best['win_rate']:.1f}%", f"{best['trades']} trades")
-
-st.divider()
-
-# ── Cumulative P&L chart ───────────────────────────────────────────────────────
-
-st.subheader("Cumulative P&L Curves")
-
-selected = st.multiselect(
-    "Select combinations to display:",
-    options=[r["name"] for r in RUNS],
-    default=[r["name"] for r in RUNS],
-)
-
-fig_pnl = go.Figure()
-for i, run in enumerate(RUNS):
-    if run["name"] not in selected:
-        continue
-    pts = DAYWISE[run["name"]]
-    dates = [p[0] for p in pts]
-    vals = [p[1] for p in pts]
-    is_best = run["name"] == "L10-M2"
-    fig_pnl.add_trace(go.Scatter(
-        x=dates,
-        y=vals,
-        mode="lines",
-        name=f"{run['name']}  (R={run['returns']:+,.0f})",
-        line=dict(
-            color=COLORS[i % len(COLORS)],
-            width=3 if is_best else 1.5,
-            dash="solid" if is_best else "dot" if run["returns"] < 0 else "solid",
-        ),
-        opacity=1.0 if is_best else 0.75,
-    ))
-
-fig_pnl.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
-fig_pnl.update_layout(
-    height=450,
-    xaxis_title="Date",
-    yaxis_title="Cumulative P&L (₹)",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    hovermode="x unified",
-    margin=dict(l=0, r=0, t=40, b=0),
-    plot_bgcolor="rgba(0,0,0,0)",
-    paper_bgcolor="rgba(0,0,0,0)",
-)
-fig_pnl.update_xaxes(showgrid=True, gridcolor="#e0e0e0")
-fig_pnl.update_yaxes(showgrid=True, gridcolor="#e0e0e0", tickprefix="₹", tickformat=",")
-st.plotly_chart(fig_pnl, use_container_width=True)
-
-st.divider()
-
-# ── Metrics comparison table ───────────────────────────────────────────────────
-
-st.subheader("All Combinations — Metrics Comparison")
-
-df_metrics = pd.DataFrame([
-    {
-        "Name": r["name"],
-        "Length": r["length"],
-        "Multiplier": r["mult"],
-        "Total Return (₹)": r["returns"],
-        "CAGR %": r["cagr"],
-        "Win Rate %": r["win_rate"],
-        "Sharpe": r["sharpe"],
-        "Sortino": r["sortino"],
-        "Calmar": r["calmar"],
-        "Max DD (₹)": r["max_dd"],
-        "Max DD %": -r["max_dd_pct"],
-        "Profit Factor": r["pf"],
-        "Trades": r["trades"],
-    }
-    for r in RUNS
-]).set_index("Name")
-
-def color_returns(val):
-    color = "#1a9641" if val > 0 else "#d7191c"
-    return f"color: {color}; font-weight: bold"
-
-def color_sharpe(val):
-    if val > 1:
-        return "color: #1a9641; font-weight: bold"
-    elif val > 0:
-        return "color: #fdae61"
-    return "color: #d7191c"
-
-styled = (
-    df_metrics.style
-    .format({
-        "Total Return (₹)": "₹{:,.0f}",
-        "CAGR %": "{:+.2f}%",
-        "Win Rate %": "{:.1f}%",
-        "Sharpe": "{:.2f}",
-        "Sortino": "{:.2f}",
-        "Calmar": "{:.2f}",
-        "Max DD (₹)": "₹{:,.0f}",
-        "Max DD %": "{:.1f}%",
-        "Profit Factor": "{:.2f}",
-    })
-    .applymap(color_returns, subset=["Total Return (₹)", "CAGR %"])
-    .applymap(color_sharpe, subset=["Sharpe"])
-    .highlight_max(subset=["Total Return (₹)", "CAGR %", "Sharpe", "Sortino", "Calmar", "Win Rate %", "Profit Factor"], color="#d4edda")
-    .highlight_min(subset=["Max DD %"], color="#d4edda")
-    .highlight_min(subset=["Total Return (₹)", "CAGR %", "Sharpe"], color="#f8d7da")
-)
-st.dataframe(styled, use_container_width=True, height=370)
-
-st.divider()
-
-# ── Heatmaps ───────────────────────────────────────────────────────────────────
-
-st.subheader("Performance Heatmap by Length × Multiplier")
-
-lengths = sorted(set(r["length"] for r in RUNS))
-mults = sorted(set(r["mult"] for r in RUNS))
-
-col_h1, col_h2 = st.columns(2)
-
-for col, metric_key, title, fmt in [
-    (col_h1, "sharpe",  "Sharpe Ratio",    "{:.2f}"),
-    (col_h2, "returns", "Total Return (₹)", "₹{:,.0f}"),
-]:
-    grid = [[next(r[metric_key] for r in RUNS if r["length"] == l and r["mult"] == m)
-             for m in mults] for l in lengths]
-    text = [[fmt.format(grid[i][j]) for j in range(len(mults))] for i in range(len(lengths))]
-
-    fig_h = go.Figure(go.Heatmap(
-        z=grid,
-        x=[f"M={m}" for m in mults],
-        y=[f"L={l}" for l in lengths],
-        text=text,
-        texttemplate="%{text}",
-        textfont=dict(size=13),
-        colorscale="RdYlGn",
-        showscale=True,
-        zmid=0,
-    ))
-    fig_h.update_layout(
-        title=title,
-        height=280,
-        margin=dict(l=0, r=0, t=40, b=0),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
+with tab_fut:
+    st.markdown(
+        "**NIFTY Monthly Futures · Lengths {7, 10, 14} × Multipliers {2, 3, 4} = 9 combinations**  "
+        "Buy futures on ST bullish crossover, Sell on bearish crossover, exit EOD at 15:15."
     )
-    col.plotly_chart(fig_h, use_container_width=True)
+    st.divider()
 
-st.divider()
+    best = next(r for r in RUNS if r["name"] == "L10-M2")
+    st.subheader("Best Performer — Length 10, Multiplier 2.0")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Return", f"₹{best['returns']:,.0f}", f"{best['cagr']:.1f}% CAGR")
+    c2.metric("Sharpe Ratio", f"{best['sharpe']:.2f}")
+    c3.metric("Sortino Ratio", f"{best['sortino']:.2f}")
+    c4.metric("Max Drawdown", f"{best['max_dd_pct']:.1f}%")
+    c5.metric("Win Rate", f"{best['win_rate']:.1f}%", f"{best['trades']} trades")
 
-# ── Strategy notes ─────────────────────────────────────────────────────────────
+    st.divider()
 
-with st.expander("Strategy Details"):
-    st.markdown("""
+    st.subheader("Cumulative P&L Curves")
+    selected = st.multiselect(
+        "Select combinations to display:",
+        options=[r["name"] for r in RUNS],
+        default=[r["name"] for r in RUNS],
+        key="fut_select",
+    )
+
+    fig_pnl = go.Figure()
+    for i, run in enumerate(RUNS):
+        if run["name"] not in selected:
+            continue
+        pts = DAYWISE[run["name"]]
+        dates = [p[0] for p in pts]
+        vals = [p[1] for p in pts]
+        is_best = run["name"] == "L10-M2"
+        fig_pnl.add_trace(go.Scatter(
+            x=dates, y=vals, mode="lines",
+            name=f"{run['name']}  (R={run['returns']:+,.0f})",
+            line=dict(
+                color=COLORS[i % len(COLORS)],
+                width=3 if is_best else 1.5,
+                dash="solid" if is_best else "dot" if run["returns"] < 0 else "solid",
+            ),
+            opacity=1.0 if is_best else 0.75,
+        ))
+
+    fig_pnl.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
+    fig_pnl.update_layout(
+        height=450, xaxis_title="Date", yaxis_title="Cumulative P&L (₹)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    fig_pnl.update_xaxes(showgrid=True, gridcolor="#e0e0e0")
+    fig_pnl.update_yaxes(showgrid=True, gridcolor="#e0e0e0", tickprefix="₹", tickformat=",")
+    st.plotly_chart(fig_pnl, use_container_width=True)
+
+    st.divider()
+
+    st.subheader("All Combinations — Metrics Comparison")
+    df_metrics = pd.DataFrame([
+        {
+            "Name": r["name"], "Length": r["length"], "Multiplier": r["mult"],
+            "Total Return (₹)": r["returns"], "CAGR %": r["cagr"], "Win Rate %": r["win_rate"],
+            "Sharpe": r["sharpe"], "Sortino": r["sortino"], "Calmar": r["calmar"],
+            "Max DD (₹)": r["max_dd"], "Max DD %": -r["max_dd_pct"],
+            "Profit Factor": r["pf"], "Trades": r["trades"],
+        }
+        for r in RUNS
+    ]).set_index("Name")
+
+    def color_returns(val):
+        color = "#1a9641" if val > 0 else "#d7191c"
+        return f"color: {color}; font-weight: bold"
+
+    def color_sharpe(val):
+        if val > 1:
+            return "color: #1a9641; font-weight: bold"
+        elif val > 0:
+            return "color: #fdae61"
+        return "color: #d7191c"
+
+    styled = (
+        df_metrics.style
+        .format({
+            "Total Return (₹)": "₹{:,.0f}", "CAGR %": "{:+.2f}%", "Win Rate %": "{:.1f}%",
+            "Sharpe": "{:.2f}", "Sortino": "{:.2f}", "Calmar": "{:.2f}",
+            "Max DD (₹)": "₹{:,.0f}", "Max DD %": "{:.1f}%", "Profit Factor": "{:.2f}",
+        })
+        .applymap(color_returns, subset=["Total Return (₹)", "CAGR %"])
+        .applymap(color_sharpe, subset=["Sharpe"])
+        .highlight_max(subset=["Total Return (₹)", "CAGR %", "Sharpe", "Sortino", "Calmar", "Win Rate %", "Profit Factor"], color="#d4edda")
+        .highlight_min(subset=["Max DD %"], color="#d4edda")
+        .highlight_min(subset=["Total Return (₹)", "CAGR %", "Sharpe"], color="#f8d7da")
+    )
+    st.dataframe(styled, use_container_width=True, height=370)
+
+    st.divider()
+
+    st.subheader("Performance Heatmap by Length × Multiplier")
+    lengths = sorted(set(r["length"] for r in RUNS))
+    mults = sorted(set(r["mult"] for r in RUNS))
+    col_h1, col_h2 = st.columns(2)
+
+    for col, metric_key, title, fmt in [
+        (col_h1, "sharpe",  "Sharpe Ratio",    "{:.2f}"),
+        (col_h2, "returns", "Total Return (₹)", "₹{:,.0f}"),
+    ]:
+        grid = [[next(r[metric_key] for r in RUNS if r["length"] == l and r["mult"] == m)
+                 for m in mults] for l in lengths]
+        text = [[fmt.format(grid[i][j]) for j in range(len(mults))] for i in range(len(lengths))]
+        fig_h = go.Figure(go.Heatmap(
+            z=grid, x=[f"M={m}" for m in mults], y=[f"L={l}" for l in lengths],
+            text=text, texttemplate="%{text}", textfont=dict(size=13),
+            colorscale="RdYlGn", showscale=True, zmid=0,
+        ))
+        fig_h.update_layout(
+            title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        col.plotly_chart(fig_h, use_container_width=True)
+
+    st.divider()
+
+    with st.expander("Strategy Details"):
+        st.markdown("""
 **Instrument:** NIFTY Monthly Futures
 **Timeframe:** 15-minute candles
-**Indicator:** Supertrend (ATR-based)
+**Indicator:** Supertrend (ATR-based) on futures price
 **Entry:** At the close of the candle on which Supertrend flips direction
 - Bullish crossover → Buy 1 lot futures
 - Bearish crossunder → Sell 1 lot futures
@@ -323,4 +399,137 @@ with st.expander("Strategy Details"):
 
 Tested 9 parameter combinations: lengths {7, 10, 14} × multipliers {2.0, 3.0, 4.0}.
 **Optimal setting: Length=10, Multiplier=2.0** — highest Sharpe (2.65), lowest max drawdown (23.8%), CAGR 44.2%.
-    """)
+        """)
+
+# ── Options ST Tab ─────────────────────────────────────────────────────────────
+
+with tab_opt:
+    st.markdown(
+        "**NIFTY Weekly ATM Options (CE + PE) · Lengths {7, 10, 14} × Multipliers {2, 3} = 6 combinations**  "
+        "Supertrend computed independently on ATM CE and ATM PE option prices. "
+        "Buy option when its price > its own ST; Sell when price < ST. Both legs managed independently. Exit EOD at 15:15."
+    )
+    st.divider()
+
+    opt_best = next(r for r in OPT_RUNS if r["name"] == "L14-M2")
+    st.subheader("Best Performer — Length 14, Multiplier 2.0")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Return", f"₹{opt_best['returns']:,.0f}", f"{opt_best['cagr']:.1f}% CAGR")
+    c2.metric("Sharpe Ratio", f"{opt_best['sharpe']:.2f}")
+    c3.metric("Sortino Ratio", f"{opt_best['sortino']:.2f}")
+    c4.metric("Max Drawdown", f"{opt_best['max_dd_pct']:.1f}%")
+    c5.metric("Win Rate", f"{opt_best['win_rate']:.1f}%", f"{opt_best['trades']} trades")
+
+    st.divider()
+
+    st.subheader("Cumulative P&L Curves")
+    opt_selected = st.multiselect(
+        "Select combinations to display:",
+        options=[r["name"] for r in OPT_RUNS],
+        default=[r["name"] for r in OPT_RUNS],
+        key="opt_select",
+    )
+
+    fig_opt_pnl = go.Figure()
+    for i, run in enumerate(OPT_RUNS):
+        if run["name"] not in opt_selected:
+            continue
+        pts = OPT_DAYWISE[run["name"]]
+        dates = [p[0] for p in pts]
+        vals = [p[1] for p in pts]
+        is_best = run["name"] == "L14-M2"
+        fig_opt_pnl.add_trace(go.Scatter(
+            x=dates, y=vals, mode="lines",
+            name=f"{run['name']}  (R={run['returns']:+,.0f})",
+            line=dict(
+                color=COLORS[i % len(COLORS)],
+                width=3 if is_best else 1.5,
+                dash="solid" if is_best else "dot" if run["returns"] < 0 else "solid",
+            ),
+            opacity=1.0 if is_best else 0.75,
+        ))
+
+    fig_opt_pnl.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
+    fig_opt_pnl.update_layout(
+        height=450, xaxis_title="Date", yaxis_title="Cumulative P&L (₹)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    fig_opt_pnl.update_xaxes(showgrid=True, gridcolor="#e0e0e0")
+    fig_opt_pnl.update_yaxes(showgrid=True, gridcolor="#e0e0e0", tickprefix="₹", tickformat=",")
+    st.plotly_chart(fig_opt_pnl, use_container_width=True)
+
+    st.divider()
+
+    st.subheader("All Combinations — Metrics Comparison")
+    df_opt_metrics = pd.DataFrame([
+        {
+            "Name": r["name"], "Length": r["length"], "Multiplier": r["mult"],
+            "Total Return (₹)": r["returns"], "CAGR %": r["cagr"], "Win Rate %": r["win_rate"],
+            "Sharpe": r["sharpe"], "Sortino": r["sortino"], "Calmar": r["calmar"],
+            "Max DD (₹)": r["max_dd"], "Max DD %": -r["max_dd_pct"],
+            "Profit Factor": r["pf"], "Trades": r["trades"],
+        }
+        for r in OPT_RUNS
+    ]).set_index("Name")
+
+    styled_opt = (
+        df_opt_metrics.style
+        .format({
+            "Total Return (₹)": "₹{:,.0f}", "CAGR %": "{:+.2f}%", "Win Rate %": "{:.1f}%",
+            "Sharpe": "{:.2f}", "Sortino": "{:.2f}", "Calmar": "{:.2f}",
+            "Max DD (₹)": "₹{:,.0f}", "Max DD %": "{:.1f}%", "Profit Factor": "{:.2f}",
+        })
+        .applymap(color_returns, subset=["Total Return (₹)", "CAGR %"])
+        .applymap(color_sharpe, subset=["Sharpe"])
+        .highlight_max(subset=["Total Return (₹)", "CAGR %", "Sharpe", "Sortino", "Calmar", "Win Rate %", "Profit Factor"], color="#d4edda")
+        .highlight_min(subset=["Max DD %"], color="#d4edda")
+        .highlight_min(subset=["Total Return (₹)", "CAGR %", "Sharpe"], color="#f8d7da")
+    )
+    st.dataframe(styled_opt, use_container_width=True, height=260)
+
+    st.divider()
+
+    st.subheader("Performance Heatmap by Length × Multiplier")
+    opt_lengths = sorted(set(r["length"] for r in OPT_RUNS))
+    opt_mults = sorted(set(r["mult"] for r in OPT_RUNS))
+    col_oh1, col_oh2 = st.columns(2)
+
+    for col, metric_key, title, fmt in [
+        (col_oh1, "sharpe",  "Sharpe Ratio",    "{:.2f}"),
+        (col_oh2, "returns", "Total Return (₹)", "₹{:,.0f}"),
+    ]:
+        grid = [[next(r[metric_key] for r in OPT_RUNS if r["length"] == l and r["mult"] == m)
+                 for m in opt_mults] for l in opt_lengths]
+        text = [[fmt.format(grid[i][j]) for j in range(len(opt_mults))] for i in range(len(opt_lengths))]
+        fig_oh = go.Figure(go.Heatmap(
+            z=grid, x=[f"M={m}" for m in opt_mults], y=[f"L={l}" for l in opt_lengths],
+            text=text, texttemplate="%{text}", textfont=dict(size=13),
+            colorscale="RdYlGn", showscale=True, zmid=0,
+        ))
+        fig_oh.update_layout(
+            title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        col.plotly_chart(fig_oh, use_container_width=True)
+
+    st.divider()
+
+    with st.expander("Strategy Details"):
+        st.markdown("""
+**Instrument:** NIFTY Weekly ATM Options (CE + PE, managed independently)
+**Timeframe:** 15-minute candles on option prices
+**Indicator:** Supertrend (ATR-based) computed separately on ATM CE price and ATM PE price
+**Entry:**
+- CE leg: Buy CE when CE price crosses above its Supertrend; Sell CE when CE price crosses below
+- PE leg: Buy PE when PE price crosses above its Supertrend; Sell PE when PE price crosses below
+- Legs flip independently — a CE crossover does not affect the PE position
+**Exit:** EOD square-off at 15:15
+**Capital:** 1 lot per leg (CE + PE simultaneously)
+**No slippage applied**
+
+Tested 6 parameter combinations: lengths {7, 10, 14} × multipliers {2.0, 3.0}.
+**Key finding:** Multiplier=2 profitable across all lengths; Multiplier=3 consistently loss-making.
+**Optimal setting: Length=14, Multiplier=2.0** — highest Sharpe (1.38), lowest max drawdown (27.7%), CAGR 21.3%.
+        """)
