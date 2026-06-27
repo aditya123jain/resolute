@@ -3,21 +3,23 @@ Fetch live NSE stock data from the internet and update ALL_DATA.csv
 so the Streamlit dashboard reflects current prices.
 
 Data sources tried in order:
-  1. Yahoo Finance via yfinance  (pip install yfinance)
-  2. NSE India unofficial REST API  (no key needed, needs cookies)
+  1. Yahoo Finance REST API  (no key required)
+  2. NSE India unofficial REST API  (no key required)
 
 Usage:
     python fetch_stock_data.py              # single fetch
     python fetch_stock_data.py --loop 30   # refresh every 30 seconds
-    python fetch_stock_data.py --source nse  # force NSE source
+    python fetch_stock_data.py --source nse  # force NSE India source
 """
 
 import argparse
 import logging
+import os
 import time
 from datetime import datetime
 
 import pandas as pd
+import requests
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,51 +31,63 @@ ALL_DATA_CSV = "ALL_DATA.csv"
 ORIGINAL_CSV = "ALL_DATA_original.csv"
 SPREAD_PCT = 0.001  # 0.1 % spread used to estimate bid/ask from LTP
 
+# Trust the proxy CA bundle so HTTPS works inside the cloud sandbox
+_CA_BUNDLE = os.environ.get("REQUESTS_CA_BUNDLE") or "/root/.ccr/ca-bundle.crt"
+_VERIFY = _CA_BUNDLE if os.path.exists(_CA_BUNDLE) else True
+
+_COMMON_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
+
+
 # ---------------------------------------------------------------------------
-# Source 1 – Yahoo Finance (yfinance)
+# Source 1 – Yahoo Finance REST API  (no library dependency beyond requests)
 # ---------------------------------------------------------------------------
+
+_YF_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+
+
+def _yf_price(session: requests.Session, symbol: str) -> float:
+    """Fetch latest price for one NSE symbol from Yahoo Finance."""
+    ticker = symbol + ".NS"
+    try:
+        r = session.get(
+            _YF_CHART_URL.format(ticker=ticker),
+            headers=_COMMON_HEADERS,
+            timeout=10,
+        )
+        r.raise_for_status()
+        meta = r.json()["chart"]["result"][0]["meta"]
+        return float(meta.get("regularMarketPrice") or meta.get("previousClose") or 0)
+    except Exception as exc:
+        logging.debug(f"[YF] {symbol}: {exc}")
+        return 0.0
+
 
 def fetch_via_yfinance(symbols: list[str]) -> dict[str, float]:
-    """Return {symbol: last_price} using Yahoo Finance (.NS suffix for NSE)."""
+    """Return {symbol: last_price} using Yahoo Finance chart API."""
+    session = requests.Session()
+    session.verify = _VERIFY
+
+    # Prime the session with a cookie handshake
     try:
-        import yfinance as yf
-    except ImportError:
-        logging.warning("yfinance not installed. Run: pip install yfinance")
-        return {}
+        session.get("https://fc.yahoo.com", timeout=5)
+    except Exception:
+        pass
 
-    tickers = [s + ".NS" for s in symbols]
-    logging.info(f"[yfinance] Fetching {len(tickers)} symbols …")
-
-    try:
-        raw = yf.download(
-            tickers,
-            period="1d",
-            interval="1m",
-            group_by="ticker",
-            auto_adjust=True,
-            progress=False,
-            threads=True,
-        )
-    except Exception as exc:
-        logging.warning(f"[yfinance] Download failed: {exc}")
-        return {}
-
+    logging.info(f"[YF] Fetching {len(symbols)} symbols from Yahoo Finance …")
     prices: dict[str, float] = {}
-    if len(tickers) == 1:
-        sym = symbols[0]
-        try:
-            prices[sym] = float(raw["Close"].dropna().iloc[-1])
-        except Exception:
-            prices[sym] = 0.0
-    else:
-        for sym, ticker in zip(symbols, tickers):
-            try:
-                prices[sym] = float(raw[ticker]["Close"].dropna().iloc[-1])
-            except Exception:
-                prices[sym] = 0.0
+    for sym in symbols:
+        prices[sym] = _yf_price(session, sym)
+        time.sleep(0.05)  # gentle rate-limiting
 
     fetched = sum(1 for v in prices.values() if v > 0)
-    logging.info(f"[yfinance] Got prices for {fetched}/{len(symbols)} symbols.")
+    logging.info(f"[YF] Got prices for {fetched}/{len(symbols)} symbols.")
     return prices
 
 
@@ -81,43 +95,32 @@ def fetch_via_yfinance(symbols: list[str]) -> dict[str, float]:
 # Source 2 – NSE India unofficial REST API
 # ---------------------------------------------------------------------------
 
-NSE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json",
-    "Referer": "https://www.nseindia.com",
-}
-
-def _nse_session():
-    """Return a requests.Session pre-seeded with NSE cookies."""
-    import requests
-    session = requests.Session()
-    session.headers.update(NSE_HEADERS)
-    # Hit the homepage once to get session cookies
-    session.get("https://www.nseindia.com", timeout=10)
-    return session
+_NSE_QUOTE_URL = "https://www.nseindia.com/api/quote-equity?symbol={symbol}"
 
 
 def fetch_via_nse(symbols: list[str]) -> dict[str, float]:
-    """Return {symbol: last_price} using NSE India's equity quote API."""
-    try:
-        import requests
-    except ImportError:
-        logging.warning("requests not installed. Run: pip install requests")
-        return {}
+    """Return {symbol: last_price} using NSE India equity quote API."""
+    session = requests.Session()
+    session.verify = _VERIFY
+    session.headers.update(_COMMON_HEADERS)
+    session.headers["Referer"] = "https://www.nseindia.com"
 
-    session = _nse_session()
+    # Prime cookies
+    try:
+        session.get("https://www.nseindia.com", timeout=10)
+    except Exception as exc:
+        logging.warning(f"[NSE] Cookie prime failed: {exc}")
+
+    logging.info(f"[NSE] Fetching {len(symbols)} symbols from NSE India …")
     prices: dict[str, float] = {}
     for sym in symbols:
         try:
-            url = f"https://www.nseindia.com/api/quote-equity?symbol={sym}"
-            resp = session.get(url, timeout=8)
-            resp.raise_for_status()
-            data = resp.json()
-            ltp = data.get("priceInfo", {}).get("lastPrice", 0.0)
+            r = session.get(
+                _NSE_QUOTE_URL.format(symbol=sym),
+                timeout=8,
+            )
+            r.raise_for_status()
+            ltp = r.json().get("priceInfo", {}).get("lastPrice", 0.0)
             prices[sym] = float(ltp)
         except Exception as exc:
             logging.debug(f"[NSE] {sym}: {exc}")
@@ -143,7 +146,7 @@ def detect_months(df: pd.DataFrame) -> list[str]:
 
 
 def estimate_futures_price(spot: float, months_out: int) -> float:
-    """Cost-of-carry estimate: F = S * e^(r*T) ≈ S * (1 + r*T)."""
+    """Cost-of-carry estimate: F ≈ S * (1 + r * T)."""
     if spot <= 0:
         return 0.0
     rate = 0.10          # ~10 % p.a. risk-free rate (India)
@@ -161,6 +164,17 @@ def update_csv(prices: dict[str, float]) -> None:
 
     months = detect_months(df)
     logging.info(f"Updating columns: LTP_nan + {['LTP_' + m for m in months]}")
+
+    # Ensure all price columns are numeric before writing floats
+    price_cols = (
+        ["LTP_nan", "TOP BID_nan", "TOP ASK_nan"]
+        + [f"LTP_{m}" for m in months]
+        + [f"TOP BID_{m}" for m in months]
+        + [f"TOP ASK_{m}" for m in months]
+    )
+    for col in price_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
     for idx, row in df.iterrows():
         sym = str(row.get("tradingsymbol_nan", "")).strip()
@@ -211,16 +225,12 @@ def run_once(source: str = "auto") -> None:
     if source in ("auto", "nse") and sum(v > 0 for v in prices.values()) < len(symbols) // 2:
         logging.info("Falling back to NSE India API …")
         nse_prices = fetch_via_nse(symbols)
-        # Fill in only the zeros from yfinance
         for sym, price in nse_prices.items():
             if prices.get(sym, 0.0) == 0.0 and price > 0:
                 prices[sym] = price
 
     fetched = sum(1 for v in prices.values() if v > 0)
-    logging.info(
-        f"Total: {fetched}/{len(symbols)} symbols with live prices. "
-        f"Updating CSV …"
-    )
+    logging.info(f"Total: {fetched}/{len(symbols)} symbols with live prices. Updating CSV …")
     update_csv(prices)
     logging.info(f"Done at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -244,7 +254,7 @@ def main() -> None:
         "--source",
         choices=["auto", "yfinance", "nse"],
         default="auto",
-        help="Data source to use (default: auto = yfinance then NSE fallback)",
+        help="Data source (default: auto = Yahoo Finance then NSE fallback)",
     )
     args = parser.parse_args()
 
