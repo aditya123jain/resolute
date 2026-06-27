@@ -11,7 +11,8 @@ Data      : Yahoo Finance daily OHLC via requests
 Author    : Claude (Sonnet 4.6) — 27 Jun 2026
 """
 
-import os, time, warnings
+import io, os, time, warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import pandas as pd
 import numpy as np
@@ -113,6 +114,161 @@ STATIC_IPOS = [
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# NSE symbol → Yahoo Finance ticker overrides
+# (where Yahoo Finance uses a different ticker than the NSE trading symbol)
+# ═══════════════════════════════════════════════════════════════════════════════
+NSE_TO_YF = {
+    "LAXMICHEM":   "LXCHEM",
+    "ANUPAMRAS":   "ANURAS",
+    "DATAPATT":    "DATAPATTNS",
+    "METRO":       "METROBRAND",
+    "AGSTRANS":    "AGSTRA",
+    "DCXSYS":      "DCXINDIA",
+    "ARCHEAN":     "ACI",
+    "HAPPYFORG":   "HAPPYFORGE",
+    "JANA":        "JSFB",
+    "INDEGENE":    "INDGN",
+    "AADHARHFL":   "AADHARHFC",
+    "UNICOMMERCE": "UNIECOM",
+    "VISHALMEGA":  "VMM",
+    "TRANSRAIL":   "TRANSRAILL",
+    "QUADRANT":    "QUADFUTURE",
+    "HEXAWARE":    "HEXT",
+    "AJAX":        "AJAXENGG",
+    "QUALITYPOW":  "QPOWER",
+    "ATHER":       "ATHERENERG",
+}
+
+# Symbols to fetch via NSE bhavcopy (not available on Yahoo Finance)
+NSE_BHAV_SYMBOLS = {
+    "BARBEQUE", "ZOMATO", "GLENMARKLIFE",
+    "AMIORG", "BRAINBEES", "ZINKA", "MBK",
+}
+
+# Maps our STATIC_IPOS symbol → actual NSE bhavcopy trading symbol
+# (IPO-era or renamed tickers that differ from the standard NSE symbol)
+BHAV_SYMBOL_MAP = {
+    "GLENMARKLIFE": "GLS",       # listed as GLS on NSE (Glenmark Life Sciences)
+    "BRAINBEES":    "FIRSTCRY",  # listed as FIRSTCRY on NSE (Brainbees Solutions)
+    "ZINKA":        "BLACKBUCK", # listed as BLACKBUCK on NSE (Zinka Logistics)
+    "MBK":          "MANBA",     # listed as MANBA on NSE (Manba Finance)
+}
+
+# In-memory cache: symbol -> pd.DataFrame with columns [date, high, low, close]
+_BHAV_CACHE: dict[str, pd.DataFrame] = {}
+
+_NSE_BHAV_URL = (
+    "https://archives.nseindia.com/products/content/sec_bhavdata_full_{date_str}.csv"
+)
+
+
+def _bhav_fetch_one_day(dt: pd.Timestamp, symbols: set[str]) -> dict[str, dict]:
+    """
+    Download one day's NSE bhavcopy and return {orig_symbol: {date,high,low,close}}.
+    Uses BHAV_SYMBOL_MAP to translate renamed/IPO-era tickers back to original symbols.
+    """
+    date_str = dt.strftime("%d%m%Y")
+    url = _NSE_BHAV_URL.format(date_str=date_str)
+    # Build reverse map: bhav_sym → orig_sym for this batch
+    bhav_to_orig: dict[str, str] = {}
+    for orig in symbols:
+        bhav_to_orig[BHAV_SYMBOL_MAP.get(orig, orig)] = orig
+
+    for attempt in range(3):
+        try:
+            r = SESSION.get(url, timeout=20)
+            if r.status_code != 200 or "csv" not in r.headers.get("Content-Type", ""):
+                return {}
+            df = pd.read_csv(io.StringIO(r.text))
+            df.columns = df.columns.str.strip()
+            df["SYMBOL"] = df["SYMBOL"].str.strip()
+            df["SERIES"] = df["SERIES"].str.strip()
+            # Filter: equity series, our bhavcopy symbols
+            df = df[
+                (df["SERIES"] == "EQ") &
+                (df["SYMBOL"].isin(bhav_to_orig.keys()))
+            ]
+            out = {}
+            for _, row in df.iterrows():
+                bhav_sym  = str(row["SYMBOL"])
+                orig_sym  = bhav_to_orig.get(bhav_sym, bhav_sym)
+                out[orig_sym] = {
+                    "date":  dt,
+                    "high":  float(row["HIGH_PRICE"]),
+                    "low":   float(row["LOW_PRICE"]),
+                    "close": float(row["CLOSE_PRICE"]),
+                }
+            return out
+        except Exception:
+            if attempt < 2:
+                time.sleep(1)
+    return {}
+
+
+def prefetch_bhav(ipos_with_dates: list[tuple[str, date]]) -> None:
+    """
+    Pre-download NSE bhavcopy for every symbol in NSE_BHAV_SYMBOLS that
+    appears in ipos_with_dates. Populates _BHAV_CACHE.
+    """
+    global _BHAV_CACHE
+
+    # Build per-symbol date ranges
+    sym_ranges: dict[str, tuple[date, date]] = {}
+    for sym, ld in ipos_with_dates:
+        if sym not in NSE_BHAV_SYMBOLS:
+            continue
+        anniv   = add_one_year(ld)
+        end_dt  = min(anniv + timedelta(days=15), TODAY)
+        sym_ranges[sym] = (ld, end_dt)
+
+    if not sym_ranges:
+        return
+
+    # Union of all dates we need
+    all_start = min(v[0] for v in sym_ranges.values())
+    all_end   = max(v[1] for v in sym_ranges.values())
+    business_days = pd.bdate_range(start=all_start, end=all_end)
+
+    symbols_needed = set(sym_ranges.keys())
+    print(
+        f"\n[BHAV] Pre-fetching NSE bhavcopy for {len(symbols_needed)} symbols "
+        f"({len(business_days)} trading days) …"
+    )
+
+    # Per-symbol accumulator
+    rows: dict[str, list[dict]] = {s: [] for s in symbols_needed}
+
+    def fetch_and_collect(dt: pd.Timestamp) -> None:
+        day_data = _bhav_fetch_one_day(dt, symbols_needed)
+        for sym, row in day_data.items():
+            rows[sym].append(row)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(fetch_and_collect, dt): dt for dt in business_days}
+        done = 0
+        for _ in as_completed(futures):
+            done += 1
+            if done % 50 == 0:
+                print(f"[BHAV] Downloaded {done}/{len(business_days)} days …")
+
+    # Build DataFrames, filter to each symbol's window, store in cache
+    for sym, row_list in rows.items():
+        if not row_list:
+            continue
+        df = (
+            pd.DataFrame(row_list)
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        # Clip to the symbol's own date range
+        s_start, s_end = sym_ranges[sym]
+        df = df[
+            (df["date"].dt.date >= s_start) & (df["date"].dt.date <= s_end)
+        ].reset_index(drop=True)
+        _BHAV_CACHE[sym] = df
+        print(f"[BHAV] {sym}: {len(df)} bars cached.")
+
+
 def add_one_year(d: date) -> date:
     try:
         return d.replace(year=d.year + 1)
@@ -120,9 +276,8 @@ def add_one_year(d: date) -> date:
         return d.replace(year=d.year + 1, day=28)
 
 
-def fetch_ohlc(symbol: str, start: date, end: date, retries: int = 3) -> pd.DataFrame:
-    """Download daily OHLC from Yahoo Finance chart v8 API."""
-    ticker = symbol + ".NS"
+def _fetch_yf_ticker(ticker: str, start: date, end: date, retries: int = 3) -> pd.DataFrame:
+    """Fetch daily OHLC for a fully-qualified Yahoo Finance ticker (e.g. ZOMATO.NS)."""
     p1 = int(datetime.combine(start, datetime.min.time()).timestamp())
     p2 = int(datetime.combine(end + timedelta(days=1), datetime.min.time()).timestamp())
     url = (
@@ -157,6 +312,23 @@ def fetch_ohlc(symbol: str, start: date, end: date, retries: int = 3) -> pd.Data
             if attempt < retries - 1:
                 time.sleep(2)
     return pd.DataFrame()
+
+
+def fetch_ohlc(symbol: str, start: date, end: date, retries: int = 3) -> pd.DataFrame:
+    """Return daily OHLC: checks bhavcopy cache first, then Yahoo Finance."""
+    # 1. Check pre-fetched bhavcopy cache (for symbols absent from Yahoo Finance)
+    if symbol in _BHAV_CACHE:
+        df = _BHAV_CACHE[symbol]
+        return df[
+            (df["date"].dt.date >= start) & (df["date"].dt.date <= end)
+        ].reset_index(drop=True)
+
+    # 2. Yahoo Finance — try corrected ticker then .NS, fallback .BO
+    yf_base = NSE_TO_YF.get(symbol, symbol)
+    df = _fetch_yf_ticker(yf_base + ".NS", start, end, retries)
+    if not df.empty:
+        return df
+    return _fetch_yf_ticker(yf_base + ".BO", start, end, retries)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -282,6 +454,10 @@ def print_section(title):
 def main():
     ipos = STATIC_IPOS
     total = len(ipos)
+
+    # Pre-download NSE bhavcopy for symbols absent from Yahoo Finance
+    ipos_dates = [(sym, datetime.strptime(ld_str, "%Y-%m-%d").date()) for sym, ld_str in ipos]
+    prefetch_bhav(ipos_dates)
 
     print(f"\n{'═'*70}")
     print(f"  IPO REVERSAL STRATEGY — BACKTEST")
