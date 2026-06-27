@@ -5,7 +5,7 @@ import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-CSV_FILE = "ALL_DATA.csv"
+CSV_FILE = "data/ALL_DATA.csv"
 
 # ====== FULLSCREEN CONFIGURATION ======
 # st.set_page_config(layout="wide")  # Maximize horizontal space
@@ -93,7 +93,7 @@ else:
 # import os
 #
 # # File path for the CSV
-# CSV_FILE = "ALL_DATA.csv"
+# CSV_FILE = "data/ALL_DATA.csv"
 #
 # df = pd.read_csv(CSV_FILE)
 #

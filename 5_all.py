@@ -7,17 +7,20 @@ import requests
 # import logging
 import numpy as np
 from kiteconnect import KiteTicker,KiteConnect
+import os
 
 # logging.basicConfig(level=logging.DEBUG)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
 import json
 
 try:
     # Open the JSON file in read mode ('r')
-    with open('credentials.json') as file:
+    with open(os.path.join(DATA_DIR, 'credentials.json')) as file:
         # Load the JSON data from the file
         data = json.load(file)
 
@@ -75,7 +78,7 @@ print(df.head())
 # #pd.read_csv('ind_nifty200list.csv')
 # print(df_nse.tail())
 
-df_nse = pd.read_csv('MW-SECURITIES-IN-F&O.csv')
+df_nse = pd.read_csv(os.path.join(DATA_DIR, 'MW-SECURITIES-IN-F&O.csv'))
 
 result = df[
     (
@@ -90,8 +93,8 @@ result_new['LTP'] = 0
 result_new['TOP_BID'] = 0
 result_new['TOP_ASK'] = 0
 print(result_new.head())
-result_new.to_csv(f'all_inst.csv')
-conn = sqlite3.connect('trading_data.db')
+result_new.to_csv(os.path.join(DATA_DIR, 'all_inst.csv'))
+conn = sqlite3.connect(os.path.join(DATA_DIR, 'trading_data.db'))
 result_new.to_sql('new_ins', conn, if_exists='replace', index=False)
 print(result_new.head(5))
 
@@ -109,7 +112,7 @@ FARTHEST_month = unique_months[2]
 # kws = KiteTicker("mwyzdvhb0ud0a72k", "ioma29xndbypol3ejtdrpe7sxku8y7g9")
 
 '''Creating the table'''
-conn = sqlite3.connect("trading_data.db")
+conn = sqlite3.connect(os.path.join(DATA_DIR, "trading_data.db"))
 cursor = conn.cursor()
 
 # Get a list of all table names
@@ -135,7 +138,7 @@ for table_name in tables:
     df['name'] = np.where(df['expiry'] == '', df['tradingsymbol'], df['name'])
     # # Step 1: Create a column to identify the month from tradingsymbol
     df['month'] = df['tradingsymbol'].str.extract(Fr'({Current_month}|{NEAR_FAR_month}|{FARTHEST_month})')
-    df.to_csv(f'check_.csv')
+    df.to_csv(os.path.join(DATA_DIR, 'check_.csv'))
     print(f"✅ df '{table}' with\n {df.head()} \n ")
 
     # # Step 2: Pivot the DataFrame for each attribute (tradingsymbol, instrument_token, LTP)
@@ -180,7 +183,7 @@ for table_name in tables:
     ]
     result = result[desired_columns]
 
-    result.to_csv('CSV_with_Instrument_tokens.csv')
+    result.to_csv(os.path.join(DATA_DIR, 'CSV_with_Instrument_tokens.csv'))
 
     #
     # # Display the result
@@ -202,14 +205,14 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
 
-df = pd.read_csv(f'CSV_with_Instrument_tokens.csv')
+df = pd.read_csv(os.path.join(DATA_DIR, 'CSV_with_Instrument_tokens.csv'))
 print(df.head())
 
 # set_with_dataframe(worksheet, df.dropna(), include_index=False, include_column_header=True)
 
-df.dropna().to_csv(f'ALL_DATA_original.csv')
+df.dropna().to_csv(os.path.join(DATA_DIR, 'ALL_DATA_original.csv'))
 
-df.dropna().to_csv(f'ALL_DATA_back_to_old.csv')
+df.dropna().to_csv(os.path.join(DATA_DIR, 'ALL_DATA_back_to_old.csv'))
 
 ############################################################################################
 import pandas as pd
@@ -226,12 +229,12 @@ import requests
 import pandas as pd
 
 ##############################################   check for similar column #######################
-df_old1 = pd.read_csv(f'ALL_DATA_back_to_old.csv')
-df_old2 = pd.read_csv('ALL_DATA_original.csv')
+df_old1 = pd.read_csv(os.path.join(DATA_DIR, 'ALL_DATA_back_to_old.csv'))
+df_old2 = pd.read_csv(os.path.join(DATA_DIR, 'ALL_DATA_original.csv'))
 
 if df_old2[f'instrument_token_{Current_month}'].iloc[0] == df_old2[F'instrument_token_{NEAR_FAR_month}'].iloc[0]:
     print(f'Both instrument become same. changing back')
-    df_old1.to_csv(f'ALL_DATA_original.csv')
+    df_old1.to_csv(os.path.join(DATA_DIR, 'ALL_DATA_original.csv'))
 
 # print(df_old2['instrument_token_JUN'].iloc[0] == df_old2['instrument_token_JUL'].iloc[0])
 # print(df_old2['instrument_token_JUL'].iloc[0])
@@ -282,7 +285,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 try:
 
-    df = pd.read_csv('ALL_DATA_original.csv')
+    df = pd.read_csv(os.path.join(DATA_DIR, 'ALL_DATA_original.csv'))
 
     # df.to_csv('ALL_DATA.csv', index=False, header=False)
 
@@ -353,13 +356,13 @@ df_lock = Lock()
 
 from concurrent.futures import ThreadPoolExecutor
 
-df_old = pd.read_csv('ALL_DATA_original.csv')
+df_old = pd.read_csv(os.path.join(DATA_DIR, 'ALL_DATA_original.csv'))
 
 
 def _insert_df(_in_df):
     start_time = time.time()
     try:
-        df = pd.read_csv('ALL_DATA_original.csv')
+        df = pd.read_csv(os.path.join(DATA_DIR, 'ALL_DATA_original.csv'))
     except Exception as e:
         print(f' error in reading orignal book {e}')
         return None
@@ -444,12 +447,12 @@ def _insert_df(_in_df):
         # __sorted_df.drop(columns=__sorted_df.columns, inplace=True)
 
         print(f' __sorted_df \n {__sorted_df.head()}' )
-        __sorted_df.to_csv('ALL_DATA.csv',index=False)
+        __sorted_df.to_csv(os.path.join(DATA_DIR, 'ALL_DATA.csv'), index=False)
 
 
 
         '''
-        df.to_csv('ALL_DATA.csv', index=False)
+        df.to_csv(os.path.join(DATA_DIR, 'ALL_DATA.csv'), index=False)
 
         print(f' __sorted_df \n {df.head()}')
 
@@ -463,7 +466,7 @@ def _insert_df(_in_df):
 
         if len(df) == len(df_old):
             print('length matched')
-            df.to_csv(f'ALL_DATA_original.csv')
+            df.to_csv(os.path.join(DATA_DIR, 'ALL_DATA_original.csv'))
 
         # df.to_csv(file_path)
 
