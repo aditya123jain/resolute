@@ -657,6 +657,35 @@ def fetch_ohlc(symbol: str, start: date, end: date, retries: int = 3) -> pd.Data
 #   "time"     – fixed stop PLUS exit at close if still underwater after 30 days
 STOP_MODE: str = "fixed"
 
+# Exit modes (all use STOP_MODE stop-loss)
+#   "anniversary" – exit at 1-year close (baseline)
+#   "target40"    – exit when high >= entry × 1.40
+#   "target60"    – exit when high >= entry × 1.60
+#   "partial30"   – sell 50% when high >= entry × 1.30, hold rest to anniversary
+#   "nifty_crash" – exit at close when Nifty 500 drops >10% from peak since entry
+EXIT_MODE: str = "anniversary"
+
+_NIFTY500: dict | None = None   # None=not loaded; {}=unavailable; {date:price}=ready
+_NIFTY500_TRIED: bool = False
+
+
+def _load_nifty500() -> None:
+    global _NIFTY500, _NIFTY500_TRIED
+    if _NIFTY500_TRIED:
+        return
+    _NIFTY500_TRIED = True
+    _NIFTY500 = {}
+    # Try Nifty 500 index first, fall back to Nifty 50 ETF as broad-market proxy
+    for ticker in ("^CNX500", "NIFTYBEES.NS", "^NSEI"):
+        df = _fetch_yf_ticker(ticker, date(2019, 1, 1), TODAY)
+        if not df.empty:
+            for _, row in df.iterrows():
+                _NIFTY500[row["date"].date()] = float(row["close"])
+            print(f"  Nifty broad-market index loaded ({ticker}): {len(_NIFTY500)} days")
+            return
+    print("  [warn] Nifty 500/50 data unavailable — crash-exit mode falls back to anniversary")
+
+
 
 def _atr14(df, idx: int) -> float:
     """14-day ATR ending at row idx."""
@@ -675,11 +704,12 @@ def _atr14(df, idx: int) -> float:
 
 
 def backtest_one(symbol: str, listing_date, df,
-                 stop_mode: str = STOP_MODE) -> list:
+                 stop_mode: str = STOP_MODE,
+                 exit_mode: str = EXIT_MODE) -> list:
     """
-    Apply IPO Reversal rules with unlimited re-entries after each stop-loss.
-    stop_mode controls stop variant: fixed / trailing / atr / time.
-    Returns a list of trade dicts (one per entry; multiple when re-entries occur).
+    IPO Reversal rules with unlimited re-entries after each stop-loss.
+    stop_mode: fixed | trailing | atr | time
+    exit_mode: anniversary | target40 | target60 | partial30 | nifty_crash
     """
     base = {"symbol": symbol, "listing_date": listing_date}
 
@@ -692,10 +722,13 @@ def backtest_one(symbol: str, listing_date, df,
     if len(df) < 3:
         return [{**base, "status": "no_data"}]
 
-    trades:      list = []
-    trailing_low       = float("inf")
-    scan_from          = 0
-    entry_num          = 0
+    if exit_mode == "nifty_crash" and not _NIFTY500_TRIED:
+        _load_nifty500()
+
+    trades:       list = []
+    trailing_low        = float("inf")
+    scan_from           = 0
+    entry_num           = 0
 
     while scan_from < len(df):
         # ── Phase 1: find next entry trigger ────────────────────────────────
@@ -726,91 +759,126 @@ def backtest_one(symbol: str, listing_date, df,
         days_to_entry  = (entry_date - listing_date).days
         current_stop   = hard_stop
 
-        # ── Phase 2: hold until stop / time-exit / anniversary ───────────────
+        # Partial-exit state
+        partial_done       = False
+        partial_leg1_price = None
+
+        # Nifty-crash: track peak from entry day onward
+        nifty_peak = _NIFTY500.get(entry_date, 0.0)
+
+        # ── Phase 2: hold until stop / target / crash / anniversary ──────────
         exited = False
         for i in range(entry_idx + 1, len(df)):
             row       = df.iloc[i]
             d         = row["date"].date()
             lo        = float(row["low"])
+            hi        = float(row["high"])
             cl        = float(row["close"])
             days_held = (d - entry_date).days
 
-            # Update trailing stop (trailing mode only)
+            # Update trailing stop
             if stop_mode == "trailing":
                 current_stop = max(current_stop, cl * 0.90)
 
-            # Time-based exit: 30 days held and still underwater
+            # Time-based exit (fixed stop + 30d no-progress)
             if stop_mode == "time" and days_held >= 30 and cl <= entry_price:
                 ret = cl / entry_price - 1
                 trades.append({**base,
-                    "entry_num":    entry_num,
-                    "status":       "time_exit",
-                    "entry_date":   entry_date,
-                    "entry_price":  round(entry_price, 2),
-                    "stop_price":   round(current_stop, 2),
-                    "exit_date":    d,
-                    "exit_price":   round(cl, 2),
-                    "return_pct":   round(ret * 100, 2),
-                    "days_to_entry": days_to_entry,
-                    "days_held":    days_held,
+                    "entry_num": entry_num, "status": "time_exit",
+                    "entry_date": entry_date, "entry_price": round(entry_price, 2),
+                    "stop_price": round(current_stop, 2),
+                    "exit_date": d, "exit_price": round(cl, 2),
+                    "return_pct": round(ret * 100, 2),
+                    "days_to_entry": days_to_entry, "days_held": days_held,
                 })
-                trailing_low = float("inf")
-                scan_from    = i
-                exited       = True
-                break
+                trailing_low = float("inf"); scan_from = i; exited = True; break
 
-            # Stop check
+            # ── Profit-target exits ──────────────────────────────────────────
+            if exit_mode in ("target40", "target60"):
+                tgt_pct   = 0.40 if exit_mode == "target40" else 0.60
+                tgt_price = entry_price * (1 + tgt_pct)
+                if hi >= tgt_price:
+                    trades.append({**base,
+                        "entry_num": entry_num, "status": "target_exit",
+                        "entry_date": entry_date, "entry_price": round(entry_price, 2),
+                        "exit_date": d, "exit_price": round(tgt_price, 2),
+                        "return_pct": round(tgt_pct * 100, 2),
+                        "days_to_entry": days_to_entry, "days_held": days_held,
+                    })
+                    trailing_low = float("inf"); scan_from = i; exited = True; break
+
+            # ── Partial exit – first leg at +30% ────────────────────────────
+            if exit_mode == "partial30" and not partial_done:
+                if hi >= entry_price * 1.30:
+                    partial_done       = True
+                    partial_leg1_price = entry_price * 1.30
+
+            # ── Stop-loss check ──────────────────────────────────────────────
             if lo <= current_stop:
-                exit_price = current_stop
-                ret        = exit_price / entry_price - 1
+                exit_px = current_stop
+                if exit_mode == "partial30" and partial_done:
+                    # blended: 50% locked at +30%, 50% stopped out
+                    leg2_ret = exit_px / entry_price - 1
+                    ret      = 0.5 * 0.30 + 0.5 * leg2_ret
+                    status   = "partial_stop"
+                else:
+                    ret    = exit_px / entry_price - 1
+                    status = "stop_hit"
                 trades.append({**base,
-                    "entry_num":    entry_num,
-                    "status":       "stop_hit",
-                    "entry_date":   entry_date,
-                    "entry_price":  round(entry_price, 2),
-                    "stop_price":   round(current_stop, 2),
-                    "exit_date":    d,
-                    "exit_price":   round(exit_price, 2),
-                    "return_pct":   round(ret * 100, 2),
-                    "days_to_entry": days_to_entry,
-                    "days_held":    days_held,
+                    "entry_num": entry_num, "status": status,
+                    "entry_date": entry_date, "entry_price": round(entry_price, 2),
+                    "stop_price": round(current_stop, 2),
+                    "exit_date": d, "exit_price": round(exit_px, 2),
+                    "return_pct": round(ret * 100, 2),
+                    "days_to_entry": days_to_entry, "days_held": days_held,
                 })
-                trailing_low = float("inf")
-                scan_from    = i
-                exited       = True
-                break
+                trailing_low = float("inf"); scan_from = i; exited = True; break
 
+            # ── Nifty 500 crash exit ─────────────────────────────────────────
+            if exit_mode == "nifty_crash" and _NIFTY500:
+                nd = _NIFTY500.get(d, 0.0)
+                if nd > 0:
+                    nifty_peak = max(nifty_peak, nd)
+                    if nifty_peak > 0 and nd < nifty_peak * 0.90:
+                        ret = cl / entry_price - 1
+                        trades.append({**base,
+                            "entry_num": entry_num, "status": "crash_exit",
+                            "entry_date": entry_date, "entry_price": round(entry_price, 2),
+                            "exit_date": d, "exit_price": round(cl, 2),
+                            "return_pct": round(ret * 100, 2),
+                            "days_to_entry": days_to_entry, "days_held": days_held,
+                        })
+                        trailing_low = float("inf"); scan_from = i; exited = True; break
+
+            # ── Anniversary exit ─────────────────────────────────────────────
             if d >= anniversary:
-                ret = cl / entry_price - 1
+                if exit_mode == "partial30" and partial_done:
+                    leg2_ret = cl / entry_price - 1
+                    ret      = 0.5 * 0.30 + 0.5 * leg2_ret
+                    status   = "partial_anniversary"
+                else:
+                    ret    = cl / entry_price - 1
+                    status = "survived_positive" if ret > 0 else "survived_negative"
                 trades.append({**base,
-                    "entry_num":    entry_num,
-                    "status":       "survived_positive" if ret > 0 else "survived_negative",
-                    "entry_date":   entry_date,
-                    "entry_price":  round(entry_price, 2),
-                    "exit_date":    d,
-                    "exit_price":   round(cl, 2),
-                    "return_pct":   round(ret * 100, 2),
-                    "days_to_entry": days_to_entry,
-                    "days_held":    days_held,
+                    "entry_num": entry_num, "status": status,
+                    "entry_date": entry_date, "entry_price": round(entry_price, 2),
+                    "exit_date": d, "exit_price": round(cl, 2),
+                    "return_pct": round(ret * 100, 2),
+                    "days_to_entry": days_to_entry, "days_held": days_held,
                 })
-                scan_from = len(df)
-                exited    = True
-                break
+                scan_from = len(df); exited = True; break
 
         if not exited:
             last    = df.iloc[-1]
             last_cl = float(last["close"])
             unreal  = last_cl / entry_price - 1
             trades.append({**base,
-                "entry_num":    entry_num,
-                "status":       "active",
-                "entry_date":   entry_date,
-                "entry_price":  round(entry_price, 2),
-                "last_date":    last["date"].date(),
-                "last_price":   round(last_cl, 2),
-                "return_pct":   round(unreal * 100, 2),
+                "entry_num": entry_num, "status": "active",
+                "entry_date": entry_date, "entry_price": round(entry_price, 2),
+                "last_date": last["date"].date(), "last_price": round(last_cl, 2),
+                "return_pct": round(unreal * 100, 2),
                 "days_to_entry": days_to_entry,
-                "days_held":    (last["date"].date() - entry_date).days,
+                "days_held": (last["date"].date() - entry_date).days,
             })
             break
 
@@ -818,53 +886,46 @@ def backtest_one(symbol: str, listing_date, df,
         last_d = df["date"].dt.date.iloc[-1]
         return [{**base, "status": "no_trigger",
                  "days_observed": (last_d - listing_date).days}]
-
     return trades
 
-# ═══════════════════════════════════════════════════════════════════════════════
-def fmt(val, width=7, decimals=1):
-    try:
-        return f"{float(val):+{width}.{decimals}f}%"
-    except Exception:
-        return "   N/A"
 
-
-def print_section(title):
-    print(f"\n{'─'*70}")
-    print(f"  {title}")
-    print(f"{'─'*70}")
-
-
-def run_mode(mode: str, ipos: list, data_cache: dict) -> dict:
-    """Run backtest for one stop mode using pre-fetched data. Returns summary dict."""
-    all_trades = []
-    for sym, ld_str in ipos:
-        ld     = datetime.strptime(ld_str, "%Y-%m-%d").date()
-        df     = data_cache.get((sym, ld_str), pd.DataFrame())
-        trades = backtest_one(sym, ld, df, stop_mode=mode)
-        all_trades.extend(trades)
-
+def _summarise(all_trades: list, mode_label: str) -> dict:
+    """Compute summary statistics for one mode's trade list."""
     df_all    = pd.DataFrame(all_trades)
-    completed = df_all[df_all["status"].isin(
-        ["stop_hit", "time_exit", "survived_positive", "survived_negative"])]
-    winners   = df_all[df_all["status"] == "survived_positive"]
-    stops     = df_all[df_all["status"].isin(["stop_hit", "time_exit"])]
+    WIN_STATUSES  = {"survived_positive", "target_exit", "partial_anniversary",
+                     "partial_stop"}
+    DONE_STATUSES = {"stop_hit", "time_exit", "survived_positive",
+                     "survived_negative", "target_exit", "crash_exit",
+                     "partial_anniversary", "partial_stop"}
+    completed = df_all[df_all["status"].isin(DONE_STATUSES)]
+    winners   = completed[completed["return_pct"] > 0]
     n         = len(completed)
     if n == 0:
-        return {"mode": mode, "trades": 0}
+        return {"mode": mode_label, "trades": 0}
+    avg_ent = (df_all.groupby(["symbol", "listing_date"])["entry_num"].max().mean()
+               if "entry_num" in df_all.columns else float("nan"))
     return {
-        "mode":        mode,
-        "trades":      n,
-        "stops":       len(stops),
-        "win_rate":    len(winners) / n * 100,
-        "mean_ret":    completed["return_pct"].mean(),
-        "median_ret":  completed["return_pct"].median(),
-        "best":        completed["return_pct"].max(),
-        "worst":       completed["return_pct"].min(),
-        "avg_days":    completed["days_held"].mean(),
-        "avg_entries": df_all.groupby(["symbol","listing_date"])["entry_num"].max().mean()
-                        if "entry_num" in df_all.columns else float("nan"),
+        "mode":       mode_label,
+        "trades":     n,
+        "win_rate":   len(winners) / n * 100,
+        "mean_ret":   completed["return_pct"].mean(),
+        "median_ret": completed["return_pct"].median(),
+        "best":       completed["return_pct"].max(),
+        "worst":      completed["return_pct"].min(),
+        "avg_days":   completed["days_held"].mean(),
+        "avg_entries": avg_ent,
     }
+
+
+def run_exit_mode(exit_mode: str, ipos: list, data_cache: dict) -> dict:
+    all_trades = []
+    for sym, ld_str in ipos:
+        ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
+        df = data_cache.get((sym, ld_str), pd.DataFrame())
+        all_trades.extend(backtest_one(sym, ld, df,
+                                       stop_mode="fixed",
+                                       exit_mode=exit_mode))
+    return _summarise(all_trades, exit_mode)
 
 
 def main():
@@ -875,13 +936,14 @@ def main():
     prefetch_bhav(ipos_dates)
 
     print(f"\n{'═'*70}")
-    print(f"  IPO REVERSAL — STOP-LOSS COMPARISON  (Opt #2)")
+    print(f"  IPO REVERSAL — EXIT RULE COMPARISON  (Opt #3)")
     print(f"  Universe : NSE Mainboard IPOs FY20-FY27  ({total} names)")
     print(f"  Run date : {TODAY}")
-    print(f"  Modes    : fixed | trailing | atr (2×ATR14) | time (30d no-progress)")
+    print(f"  Stop     : Fixed 10% hard stop (baseline) for all modes")
+    print(f"  Exits    : anniversary | target40 | target60 | partial30 | nifty_crash")
     print(f"{'═'*70}\n")
 
-    # ── Fetch all data once ───────────────────────────────────────────────────
+    # ── Fetch all IPO OHLC data once ──────────────────────────────────────────
     print("  Fetching OHLC data …")
     data_cache: dict = {}
     for idx, (sym, ld_str) in enumerate(ipos, 1):
@@ -894,45 +956,49 @@ def main():
         time.sleep(0.12)
     print(f"  Data fetch complete.\n")
 
-    # ── Run all four modes ────────────────────────────────────────────────────
-    modes   = ["fixed", "trailing", "atr", "time"]
-    results = []
-    for mode in modes:
-        print(f"  Running mode: {mode} …")
-        results.append(run_mode(mode, ipos, data_cache))
+    # ── Pre-load Nifty 500 for crash-exit mode ────────────────────────────────
+    _load_nifty500()
 
-    # ── Save detailed trades for the "fixed" baseline ─────────────────────────
-    all_trades_fixed = []
+    # ── Run all five exit modes ───────────────────────────────────────────────
+    exit_modes = ["anniversary", "target40", "target60", "partial30", "nifty_crash"]
+    results    = []
+    for em in exit_modes:
+        print(f"  Running exit mode: {em} …")
+        results.append(run_exit_mode(em, ipos, data_cache))
+
+    # ── Save detailed trades for anniversary baseline ─────────────────────────
+    all_base = []
     for sym, ld_str in ipos:
-        ld     = datetime.strptime(ld_str, "%Y-%m-%d").date()
-        df     = data_cache.get((sym, ld_str), pd.DataFrame())
-        all_trades_fixed.extend(backtest_one(sym, ld, df, stop_mode="fixed"))
-    pd.DataFrame(all_trades_fixed).to_csv("ipo_reversal_results.csv", index=False)
+        ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
+        df = data_cache.get((sym, ld_str), pd.DataFrame())
+        all_base.extend(backtest_one(sym, ld, df,
+                                     stop_mode="fixed", exit_mode="anniversary"))
+    pd.DataFrame(all_base).to_csv("ipo_reversal_results.csv", index=False)
 
     # ── Print comparison table ────────────────────────────────────────────────
-    print(f"\n{'═'*78}")
-    print(f"  STOP-LOSS MODE COMPARISON")
-    print(f"{'─'*78}")
-    print(f"  {'Mode':<12} {'Trades':>7} {'Stops':>7} {'Win%':>7} {'MeanRet':>9} "
-          f"{'MedRet':>8} {'Best':>8} {'Worst':>8} {'AvgDays':>8} {'AvgEnt':>7}")
-    print(f"{'─'*78}")
+    print(f"\n{'═'*80}")
+    print(f"  EXIT RULE COMPARISON  (all with fixed 10% stop)")
+    print(f"{'─'*80}")
+    print(f"  {'Exit mode':<16} {'Trades':>7} {'Win%':>7} {'MeanRet':>9} "
+          f"{'MedRet':>8} {'Best':>8} {'Worst':>8} {'AvgDays':>8}")
+    print(f"{'─'*80}")
     for r in results:
         if r["trades"] == 0:
-            print(f"  {r['mode']:<12}  no trades")
+            print(f"  {r['mode']:<16}  no trades")
             continue
-        print(f"  {r['mode']:<12} {r['trades']:>7} {r['stops']:>7} "
-              f"{r['win_rate']:>6.1f}% {r['mean_ret']:>+8.1f}% "
-              f"{r['median_ret']:>+7.1f}% {r['best']:>+7.1f}% "
-              f"{r['worst']:>+7.1f}% {r['avg_days']:>7.0f}d "
-              f"{r['avg_entries']:>6.1f}x")
-    print(f"{'═'*78}")
+        print(f"  {r['mode']:<16} {r['trades']:>7} {r['win_rate']:>6.1f}% "
+              f"{r['mean_ret']:>+8.1f}% {r['median_ret']:>+7.1f}% "
+              f"{r['best']:>+7.1f}% {r['worst']:>+7.1f}% "
+              f"{r['avg_days']:>7.0f}d")
+    print(f"{'═'*80}")
 
     print(f"\n  Legend:")
-    print(f"  fixed    = hard stop entry×0.90 (baseline)")
-    print(f"  trailing = stop ratchets to max(stop, close×0.90) daily")
-    print(f"  atr      = stop = entry − 2×ATR14 (volatility-adapted)")
-    print(f"  time     = fixed stop + exit at close if underwater after 30 days")
-    print(f"\n  Detailed trades (fixed baseline) saved → ipo_reversal_results.csv")
+    print(f"  anniversary  = hold to 1-year listing-date anniversary (baseline)")
+    print(f"  target40     = exit when high >= entry × 1.40 (+40% profit target)")
+    print(f"  target60     = exit when high >= entry × 1.60 (+60% profit target)")
+    print(f"  partial30    = sell 50% when high >= entry×1.30, hold rest to anniversary")
+    print(f"  nifty_crash  = exit at close when Nifty 500 drops >10% from peak since entry")
+    print(f"\n  Detailed trades (anniversary baseline) → ipo_reversal_results.csv")
     print(f"{'═'*70}\n")
 
 
