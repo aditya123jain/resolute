@@ -673,6 +673,39 @@ EXIT_MODE: str = "anniversary"
 #   "rising_thresh" – 10% for entry 1, 15% for entry 2, 20% for entry 3+
 REENTRY_MODE: str = "unlimited"
 
+# Entry-filter modes (minimise losers)
+#   "none"         – no filters, baseline
+#   "early"        – only enter within first 180 days of listing
+#   "entry1"       – only first entry per IPO (cap1)
+#   "regime"       – only enter when NIFTYBEES > its 50-day SMA
+#   "bullcandle"   – entry day close must be in upper 50% of day range
+#   "combo"        – early + entry1 + regime combined
+FILTER_MODE: str = "none"
+
+# Tighter-stop modes (reduce loss magnitude)
+#   "s10" – 10% stop (baseline)
+#   "s7"  – 7% stop
+#   "s5"  – 5% stop
+STOP_PCT: float = 0.10
+
+_NIFTYBEES_SMA: dict = {}   # date → 50-day SMA of NIFTYBEES close
+
+def _load_niftybees_sma() -> None:
+    global _NIFTYBEES_SMA
+    if _NIFTYBEES_SMA:
+        return
+    df = _fetch_yf_ticker("NIFTYBEES.NS", date(2018, 1, 1), TODAY)
+    if df.empty:
+        print("  [warn] NIFTYBEES data unavailable — regime filter disabled")
+        return
+    df = df.sort_values("date").reset_index(drop=True)
+    df["sma50"] = df["close"].rolling(50, min_periods=20).mean()
+    for _, row in df.iterrows():
+        if not pd.isna(row["sma50"]):
+            _NIFTYBEES_SMA[row["date"].date()] = float(row["sma50"]) < float(row["close"])
+    print(f"  NIFTYBEES 50-SMA regime filter ready: {len(_NIFTYBEES_SMA)} days")
+
+
 _NIFTY500: dict = {}   # empty until loaded by _load_nifty500()
 _NIFTY500_TRIED: bool = False
 
@@ -713,12 +746,16 @@ def _atr14(df, idx: int) -> float:
 def backtest_one(symbol: str, listing_date, df,
                  stop_mode: str = STOP_MODE,
                  exit_mode: str = EXIT_MODE,
-                 reentry_mode: str = REENTRY_MODE) -> list:
+                 reentry_mode: str = REENTRY_MODE,
+                 filter_mode: str = FILTER_MODE,
+                 stop_pct: float = STOP_PCT) -> list:
     """
-    IPO Reversal rules with configurable re-entry behaviour.
+    IPO Reversal rules with configurable entry filters and stop %.
     stop_mode    : fixed | trailing | atr | time
     exit_mode    : anniversary | target40 | target60 | partial30 | nifty_crash
     reentry_mode : unlimited | cap2 | cap3 | cool10 | rising_thresh
+    filter_mode  : none | early | entry1 | regime | bullcandle | combo
+    stop_pct     : 0.10 / 0.07 / 0.05
     """
     base = {"symbol": symbol, "listing_date": listing_date}
 
@@ -734,16 +771,24 @@ def backtest_one(symbol: str, listing_date, df,
     if exit_mode == "nifty_crash" and not _NIFTY500_TRIED:
         _load_nifty500()
 
+    if filter_mode in ("regime", "combo") and not _NIFTYBEES_SMA:
+        _load_niftybees_sma()
+
+    # entry1 = only allow 1 entry per IPO (cap1 via filter_mode)
+    entry_cap = 1 if filter_mode in ("entry1", "combo") else 9999
+
     trades:       list = []
     trailing_low        = float("inf")
     scan_from           = 0
     entry_num           = 0
 
     while scan_from < len(df):
-        # ── Entry cap check ──────────────────────────────────────────────────
+        # ── Entry cap checks (reentry_mode + filter_mode entry1/combo) ───────
         if reentry_mode == "cap2" and entry_num >= 2:
             break
         if reentry_mode == "cap3" and entry_num >= 3:
+            break
+        if entry_num >= entry_cap:
             break
 
         # ── Phase 1: find next entry trigger ────────────────────────────────
@@ -763,14 +808,36 @@ def backtest_one(symbol: str, listing_date, df,
                 break
             trailing_low = min(trailing_low, float(row["low"]))
             if float(row["high"]) >= trailing_low * bounce_mult:
+                # ── Entry filters ────────────────────────────────────────────
+                skip = False
+                # early: only within first 180 days of listing
+                if filter_mode in ("early", "combo"):
+                    if (d - listing_date).days > 180:
+                        skip = True
+                # regime: NIFTYBEES above 50-SMA on entry day
+                if not skip and filter_mode in ("regime", "combo"):
+                    above = _NIFTYBEES_SMA.get(d, True)   # default True if no data
+                    if not above:
+                        skip = True
+                # bullcandle: close in upper 50% of day's high-low range
+                if not skip and filter_mode in ("bullcandle", "combo"):
+                    hi_d  = float(row["high"])
+                    lo_d  = float(row["low"])
+                    cl_d  = float(row["close"])
+                    rng   = hi_d - lo_d
+                    if rng > 0 and (cl_d - lo_d) / rng < 0.50:
+                        skip = True
+                if skip:
+                    # Update trailing_low and continue scanning
+                    continue
                 entry_idx   = i
                 entry_date  = d
                 entry_price = float(row["close"])
                 if stop_mode == "atr":
                     atr = _atr14(df, i)
-                    hard_stop = (entry_price - 2 * atr) if not np.isnan(atr) else entry_price * 0.90
+                    hard_stop = (entry_price - 2 * atr) if not np.isnan(atr) else entry_price * (1 - stop_pct)
                 else:
-                    hard_stop = entry_price * 0.90
+                    hard_stop = entry_price * (1 - stop_pct)
                 break
 
         if entry_idx is None:
@@ -946,17 +1013,22 @@ def _summarise(all_trades: list, mode_label: str) -> dict:
     }
 
 
-def run_reentry_mode(reentry_mode: str, ipos: list, data_cache: dict) -> dict:
-    """Run backtest for one re-entry mode. Fixed stop + anniversary exit."""
+def _run(label, ipos, data_cache, **kwargs) -> dict:
     all_trades = []
     for sym, ld_str in ipos:
         ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
         df = data_cache.get((sym, ld_str), pd.DataFrame())
-        all_trades.extend(backtest_one(sym, ld, df,
-                                       stop_mode="fixed",
-                                       exit_mode="anniversary",
-                                       reentry_mode=reentry_mode))
-    return _summarise(all_trades, reentry_mode)
+        all_trades.extend(backtest_one(sym, ld, df, **kwargs))
+    r = _summarise(all_trades, label)
+    # Also compute stop-hit rate and avg loss
+    dft = pd.DataFrame(all_trades)
+    stops = dft[dft["status"] == "stop_hit"]
+    r["stop_rate"]  = len(stops) / max(len(dft[dft["status"].isin(
+        {"stop_hit","survived_positive","survived_negative",
+         "target_exit","crash_exit","partial_anniversary","partial_stop"})]), 1) * 100
+    r["avg_loss"]   = stops["return_pct"].mean() if len(stops) else 0.0
+    r["total_rows"] = len(all_trades)
+    return r
 
 
 def main():
@@ -967,14 +1039,14 @@ def main():
     prefetch_bhav(ipos_dates)
 
     print(f"\n{'═'*70}")
-    print(f"  IPO REVERSAL — RE-ENTRY RULE COMPARISON  (Opt #4)")
+    print(f"  IPO REVERSAL — MINIMISING LOSERS  (Opt #5)")
     print(f"  Universe : NSE Mainboard IPOs FY20-FY27  ({total} names)")
     print(f"  Run date : {TODAY}")
-    print(f"  Stop     : Fixed 10% | Exit: Anniversary | Vary: re-entry rules")
-    print(f"  Modes    : unlimited | cap2 | cap3 | cool10 | rising_thresh")
+    print(f"  Part A: Entry filters    (fixed 10% stop + anniversary + unlimited re-entry)")
+    print(f"  Part B: Tighter stop %   (no entry filter + anniversary + unlimited re-entry)")
     print(f"{'═'*70}\n")
 
-    # ── Fetch all OHLC data once ──────────────────────────────────────────────
+    # ── Fetch OHLC data once ──────────────────────────────────────────────────
     print("  Fetching OHLC data …")
     data_cache: dict = {}
     for idx, (sym, ld_str) in enumerate(ipos, 1):
@@ -987,65 +1059,73 @@ def main():
         time.sleep(0.12)
     print(f"  Data fetch complete.\n")
 
-    # ── Run all five re-entry modes ───────────────────────────────────────────
-    reentry_modes = ["unlimited", "cap2", "cap3", "cool10", "rising_thresh"]
-    results       = []
-    for rm in reentry_modes:
-        print(f"  Running re-entry mode: {rm} …")
-        results.append(run_reentry_mode(rm, ipos, data_cache))
+    # Pre-load NIFTYBEES SMA for regime filter
+    _load_niftybees_sma()
 
-    # ── Per-mode entry-depth breakdown ────────────────────────────────────────
-    print(f"\n  Entry-depth breakdown (avg & max entries per triggered IPO):")
-    print(f"  {'Mode':<16} {'AvgEntries':>11} {'MaxEntries':>11}")
-    print(f"  {'─'*42}")
-    for rm in reentry_modes:
-        all_t = []
-        for sym, ld_str in ipos:
-            ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
-            df = data_cache.get((sym, ld_str), pd.DataFrame())
-            all_t.extend(backtest_one(sym, ld, df,
-                                      stop_mode="fixed", exit_mode="anniversary",
-                                      reentry_mode=rm))
-        dft = pd.DataFrame(all_t)
-        if "entry_num" in dft.columns:
-            ipe = dft.groupby(["symbol","listing_date"])["entry_num"].max()
-            triggered = ipe[ipe > 0]
-            print(f"  {rm:<16} {triggered.mean():>10.2f}x {int(triggered.max()):>10}x")
+    # ── PART A: Entry filter comparison ──────────────────────────────────────
+    filter_configs = [
+        ("baseline",    dict(filter_mode="none",       stop_pct=0.10)),
+        ("early_180d",  dict(filter_mode="early",      stop_pct=0.10)),
+        ("entry1_only", dict(filter_mode="entry1",     stop_pct=0.10)),
+        ("regime_nifty",dict(filter_mode="regime",     stop_pct=0.10)),
+        ("bullcandle",  dict(filter_mode="bullcandle", stop_pct=0.10)),
+        ("combo",       dict(filter_mode="combo",      stop_pct=0.10)),
+    ]
 
-    # ── Save baseline (unlimited) trades ─────────────────────────────────────
+    print("  Running Part A: entry filters …")
+    filter_results = [_run(label, ipos, data_cache, **kw) for label, kw in filter_configs]
+
+    # ── PART B: Tighter stop comparison ──────────────────────────────────────
+    stop_configs = [
+        ("stop_10pct", dict(filter_mode="none", stop_pct=0.10)),
+        ("stop_7pct",  dict(filter_mode="none", stop_pct=0.07)),
+        ("stop_5pct",  dict(filter_mode="none", stop_pct=0.05)),
+    ]
+
+    print("  Running Part B: tighter stops …")
+    stop_results = [_run(label, ipos, data_cache, **kw) for label, kw in stop_configs]
+
+    def print_table(results, title):
+        print(f"\n{'═'*88}")
+        print(f"  {title}")
+        print(f"{'─'*88}")
+        print(f"  {'Label':<16} {'Trades':>7} {'Win%':>7} {'StopRate':>9} "
+              f"{'AvgLoss':>8} {'MeanRet':>9} {'Best':>8} {'AvgDays':>8}")
+        print(f"{'─'*88}")
+        for r in results:
+            if r["trades"] == 0:
+                print(f"  {r['mode']:<16}  no trades"); continue
+            print(f"  {r['mode']:<16} {r['trades']:>7} {r['win_rate']:>6.1f}% "
+                  f"{r['stop_rate']:>8.1f}% {r['avg_loss']:>+7.1f}% "
+                  f"{r['mean_ret']:>+8.1f}% {r['best']:>+7.1f}% "
+                  f"{r['avg_days']:>7.0f}d")
+        print(f"{'═'*88}")
+
+    print_table(filter_results,
+        "PART A — Entry Filters  (StopRate = % of completed trades stopped out)")
+    print_table(stop_results,
+        "PART B — Tighter Stop %  (reduces loss magnitude per stopped trade)")
+
+    print(f"\n  Legend (Part A):")
+    print(f"  baseline     = no filters")
+    print(f"  early_180d   = only enter within first 180 days of listing")
+    print(f"  entry1_only  = only take the first entry signal per IPO")
+    print(f"  regime_nifty = only enter when NIFTYBEES > 50-day SMA (bull market)")
+    print(f"  bullcandle   = only enter when close is in upper 50% of day's range")
+    print(f"  combo        = early + entry1 + regime combined")
+    print(f"\n  Legend (Part B):")
+    print(f"  stop_10pct   = hard stop 10% below entry (baseline)")
+    print(f"  stop_7pct    = hard stop 7% below entry")
+    print(f"  stop_5pct    = hard stop 5% below entry")
+
+    # ── Save baseline trades ──────────────────────────────────────────────────
     all_base = []
     for sym, ld_str in ipos:
         ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
         df = data_cache.get((sym, ld_str), pd.DataFrame())
-        all_base.extend(backtest_one(sym, ld, df,
-                                     stop_mode="fixed", exit_mode="anniversary",
-                                     reentry_mode="unlimited"))
+        all_base.extend(backtest_one(sym, ld, df))
     pd.DataFrame(all_base).to_csv("ipo_reversal_results.csv", index=False)
-
-    # ── Print comparison table ────────────────────────────────────────────────
-    print(f"\n{'═'*80}")
-    print(f"  RE-ENTRY MODE COMPARISON  (fixed stop + anniversary exit)")
-    print(f"{'─'*80}")
-    print(f"  {'Mode':<16} {'Trades':>7} {'Win%':>7} {'MeanRet':>9} "
-          f"{'MedRet':>8} {'Best':>8} {'Worst':>8} {'AvgDays':>8}")
-    print(f"{'─'*80}")
-    for r in results:
-        if r["trades"] == 0:
-            print(f"  {r['mode']:<16}  no trades")
-            continue
-        print(f"  {r['mode']:<16} {r['trades']:>7} {r['win_rate']:>6.1f}% "
-              f"{r['mean_ret']:>+8.1f}% {r['median_ret']:>+7.1f}% "
-              f"{r['best']:>+7.1f}% {r['worst']:>+7.1f}% "
-              f"{r['avg_days']:>7.0f}d")
-    print(f"{'═'*80}")
-
-    print(f"\n  Legend:")
-    print(f"  unlimited    = no cap, no cooling, 10% bounce always (baseline)")
-    print(f"  cap2         = max 2 entries per IPO within the 1-year window")
-    print(f"  cap3         = max 3 entries per IPO within the 1-year window")
-    print(f"  cool10       = wait 10 trading days after each stop before re-scanning")
-    print(f"  rising_thresh= 10% bounce for entry 1, 15% for entry 2, 20% for entry 3+")
-    print(f"\n  Detailed trades (unlimited baseline) → ipo_reversal_results.csv")
+    print(f"\n  Baseline trades saved → ipo_reversal_results.csv")
     print(f"{'═'*70}\n")
 
 
