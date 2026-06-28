@@ -665,7 +665,15 @@ STOP_MODE: str = "fixed"
 #   "nifty_crash" – exit at close when Nifty 500 drops >10% from peak since entry
 EXIT_MODE: str = "anniversary"
 
-_NIFTY500: dict | None = None   # None=not loaded; {}=unavailable; {date:price}=ready
+# Re-entry modes (all use stop_mode=fixed, exit_mode=anniversary unless noted)
+#   "unlimited"     – no cap, no cooling, always 10% threshold (baseline)
+#   "cap2"          – max 2 entries per IPO year window
+#   "cap3"          – max 3 entries per IPO year window
+#   "cool10"        – 10 trading-day cooling period after each stop
+#   "rising_thresh" – 10% for entry 1, 15% for entry 2, 20% for entry 3+
+REENTRY_MODE: str = "unlimited"
+
+_NIFTY500: dict = {}   # empty until loaded by _load_nifty500()
 _NIFTY500_TRIED: bool = False
 
 
@@ -674,7 +682,6 @@ def _load_nifty500() -> None:
     if _NIFTY500_TRIED:
         return
     _NIFTY500_TRIED = True
-    _NIFTY500 = {}
     # Try Nifty 500 index first, fall back to Nifty 50 ETF as broad-market proxy
     for ticker in ("^CNX500", "NIFTYBEES.NS", "^NSEI"):
         df = _fetch_yf_ticker(ticker, date(2019, 1, 1), TODAY)
@@ -705,11 +712,13 @@ def _atr14(df, idx: int) -> float:
 
 def backtest_one(symbol: str, listing_date, df,
                  stop_mode: str = STOP_MODE,
-                 exit_mode: str = EXIT_MODE) -> list:
+                 exit_mode: str = EXIT_MODE,
+                 reentry_mode: str = REENTRY_MODE) -> list:
     """
-    IPO Reversal rules with unlimited re-entries after each stop-loss.
-    stop_mode: fixed | trailing | atr | time
-    exit_mode: anniversary | target40 | target60 | partial30 | nifty_crash
+    IPO Reversal rules with configurable re-entry behaviour.
+    stop_mode    : fixed | trailing | atr | time
+    exit_mode    : anniversary | target40 | target60 | partial30 | nifty_crash
+    reentry_mode : unlimited | cap2 | cap3 | cool10 | rising_thresh
     """
     base = {"symbol": symbol, "listing_date": listing_date}
 
@@ -731,9 +740,21 @@ def backtest_one(symbol: str, listing_date, df,
     entry_num           = 0
 
     while scan_from < len(df):
+        # ── Entry cap check ──────────────────────────────────────────────────
+        if reentry_mode == "cap2" and entry_num >= 2:
+            break
+        if reentry_mode == "cap3" and entry_num >= 3:
+            break
+
         # ── Phase 1: find next entry trigger ────────────────────────────────
         entry_idx  = None
         entry_date = entry_price = hard_stop = None
+
+        # Rising threshold: tighter for subsequent re-entries
+        if reentry_mode == "rising_thresh":
+            bounce_mult = 1.10 if entry_num == 0 else (1.15 if entry_num == 1 else 1.20)
+        else:
+            bounce_mult = 1.10
 
         for i in range(scan_from, len(df)):
             row = df.iloc[i]
@@ -741,7 +762,7 @@ def backtest_one(symbol: str, listing_date, df,
             if d >= anniversary:
                 break
             trailing_low = min(trailing_low, float(row["low"]))
-            if float(row["high"]) >= trailing_low * 1.10:
+            if float(row["high"]) >= trailing_low * bounce_mult:
                 entry_idx   = i
                 entry_date  = d
                 entry_price = float(row["close"])
@@ -791,7 +812,9 @@ def backtest_one(symbol: str, listing_date, df,
                     "return_pct": round(ret * 100, 2),
                     "days_to_entry": days_to_entry, "days_held": days_held,
                 })
-                trailing_low = float("inf"); scan_from = i; exited = True; break
+                trailing_low = float("inf")
+                scan_from    = i + 10 if reentry_mode == "cool10" else i
+                exited = True; break
 
             # ── Profit-target exits ──────────────────────────────────────────
             if exit_mode in ("target40", "target60"):
@@ -805,7 +828,9 @@ def backtest_one(symbol: str, listing_date, df,
                         "return_pct": round(tgt_pct * 100, 2),
                         "days_to_entry": days_to_entry, "days_held": days_held,
                     })
-                    trailing_low = float("inf"); scan_from = i; exited = True; break
+                    trailing_low = float("inf")
+                    scan_from    = i + 10 if reentry_mode == "cool10" else i
+                    exited = True; break
 
             # ── Partial exit – first leg at +30% ────────────────────────────
             if exit_mode == "partial30" and not partial_done:
@@ -832,7 +857,9 @@ def backtest_one(symbol: str, listing_date, df,
                     "return_pct": round(ret * 100, 2),
                     "days_to_entry": days_to_entry, "days_held": days_held,
                 })
-                trailing_low = float("inf"); scan_from = i; exited = True; break
+                trailing_low = float("inf")
+                scan_from    = i + 10 if reentry_mode == "cool10" else i
+                exited = True; break
 
             # ── Nifty 500 crash exit ─────────────────────────────────────────
             if exit_mode == "nifty_crash" and _NIFTY500:
@@ -848,7 +875,9 @@ def backtest_one(symbol: str, listing_date, df,
                             "return_pct": round(ret * 100, 2),
                             "days_to_entry": days_to_entry, "days_held": days_held,
                         })
-                        trailing_low = float("inf"); scan_from = i; exited = True; break
+                        trailing_low = float("inf")
+                        scan_from    = i + 10 if reentry_mode == "cool10" else i
+                        exited = True; break
 
             # ── Anniversary exit ─────────────────────────────────────────────
             if d >= anniversary:
@@ -917,15 +946,17 @@ def _summarise(all_trades: list, mode_label: str) -> dict:
     }
 
 
-def run_exit_mode(exit_mode: str, ipos: list, data_cache: dict) -> dict:
+def run_reentry_mode(reentry_mode: str, ipos: list, data_cache: dict) -> dict:
+    """Run backtest for one re-entry mode. Fixed stop + anniversary exit."""
     all_trades = []
     for sym, ld_str in ipos:
         ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
         df = data_cache.get((sym, ld_str), pd.DataFrame())
         all_trades.extend(backtest_one(sym, ld, df,
                                        stop_mode="fixed",
-                                       exit_mode=exit_mode))
-    return _summarise(all_trades, exit_mode)
+                                       exit_mode="anniversary",
+                                       reentry_mode=reentry_mode))
+    return _summarise(all_trades, reentry_mode)
 
 
 def main():
@@ -936,14 +967,14 @@ def main():
     prefetch_bhav(ipos_dates)
 
     print(f"\n{'═'*70}")
-    print(f"  IPO REVERSAL — EXIT RULE COMPARISON  (Opt #3)")
+    print(f"  IPO REVERSAL — RE-ENTRY RULE COMPARISON  (Opt #4)")
     print(f"  Universe : NSE Mainboard IPOs FY20-FY27  ({total} names)")
     print(f"  Run date : {TODAY}")
-    print(f"  Stop     : Fixed 10% hard stop (baseline) for all modes")
-    print(f"  Exits    : anniversary | target40 | target60 | partial30 | nifty_crash")
+    print(f"  Stop     : Fixed 10% | Exit: Anniversary | Vary: re-entry rules")
+    print(f"  Modes    : unlimited | cap2 | cap3 | cool10 | rising_thresh")
     print(f"{'═'*70}\n")
 
-    # ── Fetch all IPO OHLC data once ──────────────────────────────────────────
+    # ── Fetch all OHLC data once ──────────────────────────────────────────────
     print("  Fetching OHLC data …")
     data_cache: dict = {}
     for idx, (sym, ld_str) in enumerate(ipos, 1):
@@ -956,30 +987,46 @@ def main():
         time.sleep(0.12)
     print(f"  Data fetch complete.\n")
 
-    # ── Pre-load Nifty 500 for crash-exit mode ────────────────────────────────
-    _load_nifty500()
+    # ── Run all five re-entry modes ───────────────────────────────────────────
+    reentry_modes = ["unlimited", "cap2", "cap3", "cool10", "rising_thresh"]
+    results       = []
+    for rm in reentry_modes:
+        print(f"  Running re-entry mode: {rm} …")
+        results.append(run_reentry_mode(rm, ipos, data_cache))
 
-    # ── Run all five exit modes ───────────────────────────────────────────────
-    exit_modes = ["anniversary", "target40", "target60", "partial30", "nifty_crash"]
-    results    = []
-    for em in exit_modes:
-        print(f"  Running exit mode: {em} …")
-        results.append(run_exit_mode(em, ipos, data_cache))
+    # ── Per-mode entry-depth breakdown ────────────────────────────────────────
+    print(f"\n  Entry-depth breakdown (avg & max entries per triggered IPO):")
+    print(f"  {'Mode':<16} {'AvgEntries':>11} {'MaxEntries':>11}")
+    print(f"  {'─'*42}")
+    for rm in reentry_modes:
+        all_t = []
+        for sym, ld_str in ipos:
+            ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
+            df = data_cache.get((sym, ld_str), pd.DataFrame())
+            all_t.extend(backtest_one(sym, ld, df,
+                                      stop_mode="fixed", exit_mode="anniversary",
+                                      reentry_mode=rm))
+        dft = pd.DataFrame(all_t)
+        if "entry_num" in dft.columns:
+            ipe = dft.groupby(["symbol","listing_date"])["entry_num"].max()
+            triggered = ipe[ipe > 0]
+            print(f"  {rm:<16} {triggered.mean():>10.2f}x {int(triggered.max()):>10}x")
 
-    # ── Save detailed trades for anniversary baseline ─────────────────────────
+    # ── Save baseline (unlimited) trades ─────────────────────────────────────
     all_base = []
     for sym, ld_str in ipos:
         ld = datetime.strptime(ld_str, "%Y-%m-%d").date()
         df = data_cache.get((sym, ld_str), pd.DataFrame())
         all_base.extend(backtest_one(sym, ld, df,
-                                     stop_mode="fixed", exit_mode="anniversary"))
+                                     stop_mode="fixed", exit_mode="anniversary",
+                                     reentry_mode="unlimited"))
     pd.DataFrame(all_base).to_csv("ipo_reversal_results.csv", index=False)
 
     # ── Print comparison table ────────────────────────────────────────────────
     print(f"\n{'═'*80}")
-    print(f"  EXIT RULE COMPARISON  (all with fixed 10% stop)")
+    print(f"  RE-ENTRY MODE COMPARISON  (fixed stop + anniversary exit)")
     print(f"{'─'*80}")
-    print(f"  {'Exit mode':<16} {'Trades':>7} {'Win%':>7} {'MeanRet':>9} "
+    print(f"  {'Mode':<16} {'Trades':>7} {'Win%':>7} {'MeanRet':>9} "
           f"{'MedRet':>8} {'Best':>8} {'Worst':>8} {'AvgDays':>8}")
     print(f"{'─'*80}")
     for r in results:
@@ -993,12 +1040,12 @@ def main():
     print(f"{'═'*80}")
 
     print(f"\n  Legend:")
-    print(f"  anniversary  = hold to 1-year listing-date anniversary (baseline)")
-    print(f"  target40     = exit when high >= entry × 1.40 (+40% profit target)")
-    print(f"  target60     = exit when high >= entry × 1.60 (+60% profit target)")
-    print(f"  partial30    = sell 50% when high >= entry×1.30, hold rest to anniversary")
-    print(f"  nifty_crash  = exit at close when Nifty 500 drops >10% from peak since entry")
-    print(f"\n  Detailed trades (anniversary baseline) → ipo_reversal_results.csv")
+    print(f"  unlimited    = no cap, no cooling, 10% bounce always (baseline)")
+    print(f"  cap2         = max 2 entries per IPO within the 1-year window")
+    print(f"  cap3         = max 3 entries per IPO within the 1-year window")
+    print(f"  cool10       = wait 10 trading days after each stop before re-scanning")
+    print(f"  rising_thresh= 10% bounce for entry 1, 15% for entry 2, 20% for entry 3+")
+    print(f"\n  Detailed trades (unlimited baseline) → ipo_reversal_results.csv")
     print(f"{'═'*70}\n")
 
 
