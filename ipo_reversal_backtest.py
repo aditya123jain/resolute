@@ -5,9 +5,9 @@ IPO Reversal Strategy — Full Backtest
 Universe  : NSE Mainboard IPOs, FY20-FY27 (Apr 2019 – Mar 2027), ~402 names
 Entry     : First trading day where intraday HIGH >= trailing_all-time_low × 1.10
 Fill      : CLOSE of entry day  (user spec)
-Stop      : TRAILING 10% — stop = max(stop, today_close × 0.90) updated daily
+Stop      : Configurable via STOP_MODE (fixed / trailing / atr / time)
 Exit      : CLOSE of first trading day on/after listing-date anniversary
-Opt #1    : Trailing stop replaces fixed 10% stop (locks in gains as price rises)
+Opt #2    : Compare four stop-loss modes side-by-side
 Data      : Yahoo Finance daily OHLC (NSE bhavcopy fallback for YF-absent symbols)
 Author    : Claude (Sonnet 4.6) — 27 Jun 2026
 """
@@ -650,12 +650,35 @@ def fetch_ohlc(symbol: str, start: date, end: date, retries: int = 3) -> pd.Data
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict]:
+# Stop-loss modes
+#   "fixed"    – hard stop at entry × 0.90  (original baseline)
+#   "trailing" – stop = max(stop, close × 0.90) updated daily
+#   "atr"      – stop = entry − 2 × ATR14 computed on entry day
+#   "time"     – fixed stop PLUS exit at close if still underwater after 30 days
+STOP_MODE: str = "fixed"
+
+
+def _atr14(df, idx: int) -> float:
+    """14-day ATR ending at row idx."""
+    window = df.iloc[max(0, idx - 14): idx + 1]
+    if len(window) < 2:
+        return float("nan")
+    highs  = window["high"].values.astype(float)
+    lows   = window["low"].values.astype(float)
+    closes = window["close"].values.astype(float)
+    tr = []
+    for j in range(1, len(window)):
+        tr.append(max(highs[j] - lows[j],
+                      abs(highs[j] - closes[j - 1]),
+                      abs(lows[j]  - closes[j - 1])))
+    return float(np.mean(tr)) if tr else float("nan")
+
+
+def backtest_one(symbol: str, listing_date, df,
+                 stop_mode: str = STOP_MODE) -> list:
     """
     Apply IPO Reversal rules with unlimited re-entries after each stop-loss.
-    OPTIMISATION #1: Trailing stop — stop ratchets up to close×0.90 each day,
-    locking in gains as price rises. Return on a stopped trade reflects actual
-    exit vs entry (no longer always −10%).
+    stop_mode controls stop variant: fixed / trailing / atr / time.
     Returns a list of trade dicts (one per entry; multiple when re-entries occur).
     """
     base = {"symbol": symbol, "listing_date": listing_date}
@@ -669,15 +692,15 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
     if len(df) < 3:
         return [{**base, "status": "no_data"}]
 
-    trades:      list[dict] = []
-    trailing_low             = float("inf")
-    scan_from                = 0        # row index to start next entry scan
-    entry_num                = 0
+    trades:      list = []
+    trailing_low       = float("inf")
+    scan_from          = 0
+    entry_num          = 0
 
     while scan_from < len(df):
         # ── Phase 1: find next entry trigger ────────────────────────────────
         entry_idx  = None
-        entry_date = entry_price = trail_stop = None
+        entry_date = entry_price = hard_stop = None
 
         for i in range(scan_from, len(df)):
             row = df.iloc[i]
@@ -689,41 +712,69 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
                 entry_idx   = i
                 entry_date  = d
                 entry_price = float(row["close"])
-                trail_stop  = entry_price * 0.90   # initial stop = entry × 0.90
+                if stop_mode == "atr":
+                    atr = _atr14(df, i)
+                    hard_stop = (entry_price - 2 * atr) if not np.isnan(atr) else entry_price * 0.90
+                else:
+                    hard_stop = entry_price * 0.90
                 break
 
         if entry_idx is None:
-            break   # no further entry possible before anniversary
+            break
 
-        entry_num    += 1
-        days_to_entry = (entry_date - listing_date).days
+        entry_num     += 1
+        days_to_entry  = (entry_date - listing_date).days
+        current_stop   = hard_stop
 
-        # ── Phase 2: hold until trailing stop hit or anniversary ────────────
+        # ── Phase 2: hold until stop / time-exit / anniversary ───────────────
         exited = False
         for i in range(entry_idx + 1, len(df)):
-            row = df.iloc[i]
-            d   = row["date"].date()
-            lo  = float(row["low"])
-            cl  = float(row["close"])
+            row       = df.iloc[i]
+            d         = row["date"].date()
+            lo        = float(row["low"])
+            cl        = float(row["close"])
+            days_held = (d - entry_date).days
 
-            # Ratchet stop up — never moves down
-            trail_stop = max(trail_stop, cl * 0.90)
+            # Update trailing stop (trailing mode only)
+            if stop_mode == "trailing":
+                current_stop = max(current_stop, cl * 0.90)
 
-            if lo <= trail_stop:
-                ret = trail_stop / entry_price - 1
+            # Time-based exit: 30 days held and still underwater
+            if stop_mode == "time" and days_held >= 30 and cl <= entry_price:
+                ret = cl / entry_price - 1
+                trades.append({**base,
+                    "entry_num":    entry_num,
+                    "status":       "time_exit",
+                    "entry_date":   entry_date,
+                    "entry_price":  round(entry_price, 2),
+                    "stop_price":   round(current_stop, 2),
+                    "exit_date":    d,
+                    "exit_price":   round(cl, 2),
+                    "return_pct":   round(ret * 100, 2),
+                    "days_to_entry": days_to_entry,
+                    "days_held":    days_held,
+                })
+                trailing_low = float("inf")
+                scan_from    = i
+                exited       = True
+                break
+
+            # Stop check
+            if lo <= current_stop:
+                exit_price = current_stop
+                ret        = exit_price / entry_price - 1
                 trades.append({**base,
                     "entry_num":    entry_num,
                     "status":       "stop_hit",
                     "entry_date":   entry_date,
                     "entry_price":  round(entry_price, 2),
-                    "stop_price":   round(trail_stop, 2),
+                    "stop_price":   round(current_stop, 2),
                     "exit_date":    d,
-                    "exit_price":   round(trail_stop, 2),
+                    "exit_price":   round(exit_price, 2),
                     "return_pct":   round(ret * 100, 2),
                     "days_to_entry": days_to_entry,
-                    "days_held":    (d - entry_date).days,
+                    "days_held":    days_held,
                 })
-                # Reset for re-entry: resume scan from the stop day
                 trailing_low = float("inf")
                 scan_from    = i
                 exited       = True
@@ -740,14 +791,13 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
                     "exit_price":   round(cl, 2),
                     "return_pct":   round(ret * 100, 2),
                     "days_to_entry": days_to_entry,
-                    "days_held":    (d - entry_date).days,
+                    "days_held":    days_held,
                 })
-                scan_from = len(df)   # mark as fully done
+                scan_from = len(df)
                 exited    = True
                 break
 
         if not exited:
-            # Ran out of data while still in trade → open/active
             last    = df.iloc[-1]
             last_cl = float(last["close"])
             unreal  = last_cl / entry_price - 1
@@ -771,7 +821,6 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
 
     return trades
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 def fmt(val, width=7, decimals=1):
     try:
@@ -786,6 +835,38 @@ def print_section(title):
     print(f"{'─'*70}")
 
 
+def run_mode(mode: str, ipos: list, data_cache: dict) -> dict:
+    """Run backtest for one stop mode using pre-fetched data. Returns summary dict."""
+    all_trades = []
+    for sym, ld_str in ipos:
+        ld     = datetime.strptime(ld_str, "%Y-%m-%d").date()
+        df     = data_cache.get((sym, ld_str), pd.DataFrame())
+        trades = backtest_one(sym, ld, df, stop_mode=mode)
+        all_trades.extend(trades)
+
+    df_all    = pd.DataFrame(all_trades)
+    completed = df_all[df_all["status"].isin(
+        ["stop_hit", "time_exit", "survived_positive", "survived_negative"])]
+    winners   = df_all[df_all["status"] == "survived_positive"]
+    stops     = df_all[df_all["status"].isin(["stop_hit", "time_exit"])]
+    n         = len(completed)
+    if n == 0:
+        return {"mode": mode, "trades": 0}
+    return {
+        "mode":        mode,
+        "trades":      n,
+        "stops":       len(stops),
+        "win_rate":    len(winners) / n * 100,
+        "mean_ret":    completed["return_pct"].mean(),
+        "median_ret":  completed["return_pct"].median(),
+        "best":        completed["return_pct"].max(),
+        "worst":       completed["return_pct"].min(),
+        "avg_days":    completed["days_held"].mean(),
+        "avg_entries": df_all.groupby(["symbol","listing_date"])["entry_num"].max().mean()
+                        if "entry_num" in df_all.columns else float("nan"),
+    }
+
+
 def main():
     ipos  = STATIC_IPOS
     total = len(ipos)
@@ -794,216 +875,64 @@ def main():
     prefetch_bhav(ipos_dates)
 
     print(f"\n{'═'*70}")
-    print(f"  IPO REVERSAL STRATEGY — BACKTEST  (Opt #1: Trailing Stop)")
-    print(f"  Universe : NSE Mainboard IPOs FY20-FY27 (Apr 2019–Mar 2027)  ({total} names)")
+    print(f"  IPO REVERSAL — STOP-LOSS COMPARISON  (Opt #2)")
+    print(f"  Universe : NSE Mainboard IPOs FY20-FY27  ({total} names)")
     print(f"  Run date : {TODAY}")
-    print(f"  Rules    : Entry HIGH≥trailing_low×1.10 → fill CLOSE")
-    print(f"             Stop = TRAILING 10% (max(stop, close×0.90)) | Re-enter after stop")
-    print(f"             Exit = anniversary close")
+    print(f"  Modes    : fixed | trailing | atr (2×ATR14) | time (30d no-progress)")
     print(f"{'═'*70}\n")
-    print(f"{'#':>4}  {'Symbol':<14} {'Listed':<12} {'E#':>2}  {'Status':<22} {'Return':>8}  {'Days held':>9}")
-    print(f"{'─'*74}")
 
-    all_trades: list[dict] = []
-    ipo_flags:  dict       = {}   # (sym, ld_str): "no_data"|"no_trigger"|"triggered"
-
-    for i, (sym, ld_str) in enumerate(ipos, 1):
+    # ── Fetch all data once ───────────────────────────────────────────────────
+    print("  Fetching OHLC data …")
+    data_cache: dict = {}
+    for idx, (sym, ld_str) in enumerate(ipos, 1):
         ld     = datetime.strptime(ld_str, "%Y-%m-%d").date()
         anniv  = add_one_year(ld)
         end_dt = min(anniv + timedelta(days=15), TODAY)
-        df     = fetch_ohlc(sym, ld, end_dt)
-        trades = backtest_one(sym, ld, df)
-
-        statuses = {t["status"] for t in trades}
-        if statuses == {"no_data"}:
-            ipo_flags[(sym, ld_str)] = "no_data"
-        elif statuses == {"no_trigger"}:
-            ipo_flags[(sym, ld_str)] = "no_trigger"
-        else:
-            ipo_flags[(sym, ld_str)] = "triggered"
-
-        all_trades.extend(trades)
-
-        # Print first trade on the IPO row; subsequent trades indented
-        for t_idx, t in enumerate(trades):
-            en  = t.get("entry_num", "—")
-            st  = t["status"]
-            ret = fmt(t["return_pct"]) if "return_pct" in t else "      —"
-            dh  = str(t.get("days_held", "—"))
-            if t_idx == 0:
-                print(f"{i:>4}  {sym:<14} {ld_str:<12} {str(en):>2}  {st:<22} {ret}  {dh:>9}")
-            else:
-                print(f"{'':>4}  {'':>14} {'':>12} {str(en):>2}  {st:<22} {ret}  {dh:>9}")
-
+        data_cache[(sym, ld_str)] = fetch_ohlc(sym, ld, end_dt)
+        if idx % 50 == 0:
+            print(f"    {idx}/{total} fetched …")
         time.sleep(0.12)
+    print(f"  Data fetch complete.\n")
 
-    # ── Save all trades ───────────────────────────────────────────────────────
-    df_all = pd.DataFrame(all_trades)
-    df_all.to_csv("ipo_reversal_results.csv", index=False)
+    # ── Run all four modes ────────────────────────────────────────────────────
+    modes   = ["fixed", "trailing", "atr", "time"]
+    results = []
+    for mode in modes:
+        print(f"  Running mode: {mode} …")
+        results.append(run_mode(mode, ipos, data_cache))
 
-    # ── IPO-level counts (for coverage stats) ────────────────────────────────
-    n_ipos_total    = total
-    n_ipos_no_data  = sum(1 for v in ipo_flags.values() if v == "no_data")
-    n_ipos_no_trig  = sum(1 for v in ipo_flags.values() if v == "no_trigger")
-    n_ipos_with_data= n_ipos_total - n_ipos_no_data
+    # ── Save detailed trades for the "fixed" baseline ─────────────────────────
+    all_trades_fixed = []
+    for sym, ld_str in ipos:
+        ld     = datetime.strptime(ld_str, "%Y-%m-%d").date()
+        df     = data_cache.get((sym, ld_str), pd.DataFrame())
+        all_trades_fixed.extend(backtest_one(sym, ld, df, stop_mode="fixed"))
+    pd.DataFrame(all_trades_fixed).to_csv("ipo_reversal_results.csv", index=False)
 
-    # ── Trade-level partitions ────────────────────────────────────────────────
-    stop_hit  = df_all[df_all["status"] == "stop_hit"]
-    surv_neg  = df_all[df_all["status"] == "survived_negative"]
-    surv_pos  = df_all[df_all["status"] == "survived_positive"]
-    active    = df_all[df_all["status"] == "active"]
-    triggered = df_all[df_all["status"].isin(["stop_hit", "survived_negative", "survived_positive"])]
+    # ── Print comparison table ────────────────────────────────────────────────
+    print(f"\n{'═'*78}")
+    print(f"  STOP-LOSS MODE COMPARISON")
+    print(f"{'─'*78}")
+    print(f"  {'Mode':<12} {'Trades':>7} {'Stops':>7} {'Win%':>7} {'MeanRet':>9} "
+          f"{'MedRet':>8} {'Best':>8} {'Worst':>8} {'AvgDays':>8} {'AvgEnt':>7}")
+    print(f"{'─'*78}")
+    for r in results:
+        if r["trades"] == 0:
+            print(f"  {r['mode']:<12}  no trades")
+            continue
+        print(f"  {r['mode']:<12} {r['trades']:>7} {r['stops']:>7} "
+              f"{r['win_rate']:>6.1f}% {r['mean_ret']:>+8.1f}% "
+              f"{r['median_ret']:>+7.1f}% {r['best']:>+7.1f}% "
+              f"{r['worst']:>+7.1f}% {r['avg_days']:>7.0f}d "
+              f"{r['avg_entries']:>6.1f}x")
+    print(f"{'═'*78}")
 
-    n_trig   = len(triggered)
-    n_active = len(active)
-
-    # ── Universe & coverage ───────────────────────────────────────────────────
-    print_section("UNIVERSE & COVERAGE  (IPO level)")
-    print(f"  Total IPOs in universe       : {n_ipos_total:>5}")
-    print(f"  No data (symbol not found)   : {n_ipos_no_data:>5}")
-    print(f"  IPOs with data               : {n_ipos_with_data:>5}")
-    print(f"  No trigger within 1 year     : {n_ipos_no_trig:>5}  (setup never appeared)")
-    n_ipos_active = df_all[df_all["status"]=="active"]["symbol"].nunique()
-    print(f"  IPOs with open active trade  : {n_ipos_active:>5}")
-
-    print_section("TRADE TOTALS  (trade level, re-entries counted separately)")
-    print(f"  Total completed trades       : {n_trig:>5}")
-    print(f"  — Stop-loss exits            : {len(stop_hit):>5}")
-    print(f"  — Survived to anniversary    : {len(surv_pos)+len(surv_neg):>5}  "
-          f"({len(surv_pos)} positive, {len(surv_neg)} negative)")
-    print(f"  Open / active trades         : {n_active:>5}")
-    if n_ipos_with_data > 0:
-        print(f"\n  ► IPO coverage               : "
-              f"{(n_ipos_with_data-n_ipos_no_trig)/n_ipos_with_data*100:.1f}%  "
-              f"(IPOs where setup appeared at least once)")
-
-    if n_trig == 0:
-        print("\n  No completed trades to analyse.")
-        return
-
-    # ── Re-entry analysis ─────────────────────────────────────────────────────
-    if "entry_num" in df_all.columns:
-        print_section("RE-ENTRY ANALYSIS")
-        max_entries = int(df_all["entry_num"].max())
-        ipo_entry_counts = (
-            df_all.groupby(["symbol", "listing_date"])["entry_num"].max()
-        )
-        avg_entries = ipo_entry_counts.mean()
-        ipos_with_reentry = (ipo_entry_counts > 1).sum()
-        print(f"  IPOs with ≥1 re-entry        : {ipos_with_reentry:>5}  "
-              f"(out of {n_ipos_with_data - n_ipos_no_trig} that triggered)")
-        print(f"  Avg entries per triggered IPO: {avg_entries:>7.2f}")
-        print(f"  Max entries for one IPO      : {max_entries:>5}")
-        print(f"\n  Distribution (entries per IPO):")
-        dist = ipo_entry_counts.value_counts().sort_index()
-        for n_e, cnt in dist.items():
-            print(f"    {int(n_e):>2} entry/entries : {cnt:>4} IPOs")
-
-        # Performance by entry number
-        print(f"\n  Return by entry number (completed trades only):")
-        print(f"  {'Entry#':<8} {'N':>5}  {'Win%':>6}  {'Avg ret':>9}  {'Med ret':>9}")
-        for en in range(1, max_entries + 1):
-            sub = triggered[triggered["entry_num"] == en]["return_pct"]
-            sub = pd.to_numeric(sub, errors="coerce").dropna()
-            if len(sub) == 0:
-                continue
-            print(f"  {en:<8} {len(sub):>5}  {(sub>0).mean()*100:>5.1f}%  "
-                  f"{sub.mean():>+8.1f}%  {sub.median():>+8.1f}%")
-
-    # ── Outcome distribution ──────────────────────────────────────────────────
-    print_section("OUTCOME DISTRIBUTION  (all completed trades)")
-    p_stop = len(stop_hit) / n_trig
-    p_sn   = len(surv_neg) / n_trig
-    p_sp   = len(surv_pos) / n_trig
-
-    def avg(subset, col="return_pct"):
-        s = pd.to_numeric(subset[col], errors="coerce").dropna()
-        return s.mean() if len(s) else np.nan
-
-    def med(subset, col="return_pct"):
-        s = pd.to_numeric(subset[col], errors="coerce").dropna()
-        return s.median() if len(s) else np.nan
-
-    print(f"\n  {'Bucket':<28} {'N':>5}  {'Share':>6}  {'Avg Ret':>9}  {'Median Ret':>11}")
-    print(f"  {'─'*64}")
-    print(f"  {'Stop-loss hit':<28} {len(stop_hit):>5}  {p_stop*100:>5.1f}%  {avg(stop_hit):>+8.1f}%  {med(stop_hit):>+10.1f}%")
-    print(f"  {'Survived, negative':<28} {len(surv_neg):>5}  {p_sn*100:>5.1f}%  {avg(surv_neg):>+8.1f}%  {med(surv_neg):>+10.1f}%")
-    print(f"  {'Survived, positive':<28} {len(surv_pos):>5}  {p_sp*100:>5.1f}%  {avg(surv_pos):>+8.1f}%  {med(surv_pos):>+10.1f}%")
-    print(f"  {'─'*64}")
-    print(f"  {'TOTAL LOSS RATE':<28} {'':>5}  {(p_stop+p_sn)*100:>5.1f}%")
-    print(f"  {'WIN RATE (survived+ve)':<28} {'':>5}  {p_sp*100:>5.1f}%")
-
-    # ── Return statistics ─────────────────────────────────────────────────────
-    print_section("RETURN STATISTICS  (all completed trades)")
-    all_ret = pd.to_numeric(triggered["return_pct"], errors="coerce").dropna()
-    days_h  = pd.to_numeric(triggered["days_held"],  errors="coerce").dropna()
-
-    print(f"  Mean return             : {all_ret.mean():>+7.1f}%")
-    print(f"  Median return           : {all_ret.median():>+7.1f}%")
-    print(f"  Best trade              : {all_ret.max():>+7.1f}%")
-    print(f"  Worst trade             : {all_ret.min():>+7.1f}%")
-    print(f"  Std deviation           : {all_ret.std():>7.1f}%")
-    p10, p25, p75, p90 = all_ret.quantile([0.10, 0.25, 0.75, 0.90])
-    print(f"  10th / 25th percentile  : {p10:>+7.1f}% / {p25:>+7.1f}%")
-    print(f"  75th / 90th percentile  : {p75:>+7.1f}% / {p90:>+7.1f}%")
-    print(f"  Avg holding period      : {days_h.mean():>6.0f} days")
-    avg_hold_yr = days_h.mean() / 365
-    if avg_hold_yr > 0:
-        cagr_proxy = (1 + all_ret.mean() / 100) ** (1 / avg_hold_yr) - 1
-        print(f"  CAGR (annualised mean)  : {cagr_proxy*100:>+7.1f}%")
-
-    # ── Stop-loss timing ──────────────────────────────────────────────────────
-    if len(stop_hit) > 0:
-        print_section(f"STOP-LOSS TIMING  (n={len(stop_hit)} stops)")
-        sd = pd.to_numeric(stop_hit["days_held"], errors="coerce").dropna()
-        q1, q2, q3 = sd.quantile([0.25, 0.50, 0.75])
-        print(f"  Min / Max           : {sd.min():.0f} / {sd.max():.0f} days from entry")
-        print(f"  Mean / Median       : {sd.mean():.0f} / {sd.median():.0f} days")
-        print(f"  Q1 / Q2 / Q3        : {q1:.0f} / {q2:.0f} / {q3:.0f} days")
-        print(f"\n  Timing buckets:")
-        for lo, hi, label in [(0,30,"< 30 d"),(30,90,"30-90 d"),(90,180,"90-180 d"),(180,9999,">180 d")]:
-            n = ((sd >= lo) & (sd < hi)).sum()
-            print(f"    {label:<12}: {n:>4}  ({n/len(sd)*100:.0f}%)")
-
-    # ── Days-to-entry ─────────────────────────────────────────────────────────
-    print_section("DAYS FROM LISTING TO ENTRY  (all completed trades)")
-    dte_all = pd.to_numeric(triggered["days_to_entry"], errors="coerce").dropna()
-    print(f"  Mean / Median : {dte_all.mean():.0f} / {dte_all.median():.0f} days")
-    print(f"  Min / Max     : {dte_all.min():.0f} / {dte_all.max():.0f} days")
-    for lo, hi, label in [(0,30,"< 30 d"),(30,90,"30-90 d"),(90,180,"90-180 d"),(180,365,">180 d")]:
-        n = ((dte_all >= lo) & (dte_all < hi)).sum()
-        print(f"  {label:<12}: {n:>4}  ({n/len(dte_all)*100:.0f}%)")
-
-    # ── Top / bottom trades ───────────────────────────────────────────────────
-    cols = ["symbol", "listing_date", "entry_num", "entry_date", "entry_price", "exit_price", "return_pct", "days_held"]
-    avail = [c for c in cols if c in triggered.columns]
-    print_section("TOP 10 WINNERS")
-    print(triggered.nlargest(10, "return_pct")[avail].to_string(index=False))
-    print_section("TOP 10 LOSERS")
-    print(triggered.nsmallest(10, "return_pct")[avail].to_string(index=False))
-
-    # ── Active trades ─────────────────────────────────────────────────────────
-    if n_active > 0:
-        print_section(f"ACTIVE TRADES  (n={n_active})")
-        act_ret = pd.to_numeric(active["return_pct"], errors="coerce").dropna()
-        print(f"  Mean unrealised : {act_ret.mean():>+7.1f}%  |  Median : {act_ret.median():>+7.1f}%")
-        act_cols = [c for c in ["symbol","listing_date","entry_num","entry_date","entry_price","last_price","return_pct","days_held"] if c in active.columns]
-        print(active[act_cols].to_string(index=False))
-
-    # ── Year-by-year cohort ───────────────────────────────────────────────────
-    print_section("YEAR-BY-YEAR COHORT  (completed trades, grouped by listing year)")
-    t2 = triggered.copy()
-    t2["year"] = pd.to_datetime(t2["listing_date"]).dt.year
-    cohort = (t2.groupby("year")
-               .agg(trades=("return_pct","count"),
-                    mean_ret=("return_pct","mean"),
-                    median_ret=("return_pct","median"),
-                    win_pct=("return_pct", lambda x: (x > 0).mean() * 100))
-               .reset_index())
-    print(cohort.to_string(index=False))
-
-    print(f"\n{'═'*70}")
-    print(f"  Results saved → ipo_reversal_results.csv  ({len(df_all)} trade rows)")
+    print(f"\n  Legend:")
+    print(f"  fixed    = hard stop entry×0.90 (baseline)")
+    print(f"  trailing = stop ratchets to max(stop, close×0.90) daily")
+    print(f"  atr      = stop = entry − 2×ATR14 (volatility-adapted)")
+    print(f"  time     = fixed stop + exit at close if underwater after 30 days")
+    print(f"\n  Detailed trades (fixed baseline) saved → ipo_reversal_results.csv")
     print(f"{'═'*70}\n")
 
 
