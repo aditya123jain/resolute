@@ -666,12 +666,13 @@ STOP_MODE: str = "fixed"
 EXIT_MODE: str = "anniversary"
 
 # Re-entry modes (all use stop_mode=fixed, exit_mode=anniversary unless noted)
-#   "unlimited"     – no cap, no cooling, always 10% threshold (baseline)
+#   "cap1"          – NO re-entry: only the first signal per IPO  ← NEW DEFAULT
+#   "unlimited"     – no cap, no cooling, always 10% threshold
 #   "cap2"          – max 2 entries per IPO year window
 #   "cap3"          – max 3 entries per IPO year window
 #   "cool10"        – 10 trading-day cooling period after each stop
 #   "rising_thresh" – 10% for entry 1, 15% for entry 2, 20% for entry 3+
-REENTRY_MODE: str = "unlimited"
+REENTRY_MODE: str = "cap1"
 
 # Entry-filter modes (minimise losers)
 #   "none"         – no filters, baseline
@@ -784,6 +785,8 @@ def backtest_one(symbol: str, listing_date, df,
 
     while scan_from < len(df):
         # ── Entry cap checks (reentry_mode + filter_mode entry1/combo) ───────
+        if reentry_mode == "cap1" and entry_num >= 1:
+            break
         if reentry_mode == "cap2" and entry_num >= 2:
             break
         if reentry_mode == "cap3" and entry_num >= 3:
@@ -1042,8 +1045,8 @@ def main():
     print(f"  IPO REVERSAL — MINIMISING LOSERS  (Opt #5)")
     print(f"  Universe : NSE Mainboard IPOs FY20-FY27  ({total} names)")
     print(f"  Run date : {TODAY}")
-    print(f"  Part A: Entry filters    (fixed 10% stop + anniversary + unlimited re-entry)")
-    print(f"  Part B: Tighter stop %   (no entry filter + anniversary + unlimited re-entry)")
+    print(f"  Part A: Entry filters    (fixed 10% stop + anniversary + NO re-entry)")
+    print(f"  Part B: Tighter stop %   (no entry filter + anniversary + NO re-entry)")
     print(f"{'═'*70}\n")
 
     # ── Fetch OHLC data once ──────────────────────────────────────────────────
@@ -1063,13 +1066,13 @@ def main():
     _load_niftybees_sma()
 
     # ── PART A: Entry filter comparison ──────────────────────────────────────
+    # All runs use cap1 (no re-entry) as baseline behaviour
     filter_configs = [
-        ("baseline",    dict(filter_mode="none",       stop_pct=0.10)),
-        ("early_180d",  dict(filter_mode="early",      stop_pct=0.10)),
-        ("entry1_only", dict(filter_mode="entry1",     stop_pct=0.10)),
-        ("regime_nifty",dict(filter_mode="regime",     stop_pct=0.10)),
-        ("bullcandle",  dict(filter_mode="bullcandle", stop_pct=0.10)),
-        ("combo",       dict(filter_mode="combo",      stop_pct=0.10)),
+        ("no_filter",   dict(reentry_mode="cap1", filter_mode="none",       stop_pct=0.10)),
+        ("early_180d",  dict(reentry_mode="cap1", filter_mode="early",      stop_pct=0.10)),
+        ("regime_nifty",dict(reentry_mode="cap1", filter_mode="regime",     stop_pct=0.10)),
+        ("bullcandle",  dict(reentry_mode="cap1", filter_mode="bullcandle", stop_pct=0.10)),
+        ("combo",       dict(reentry_mode="cap1", filter_mode="combo",      stop_pct=0.10)),
     ]
 
     print("  Running Part A: entry filters …")
@@ -1077,9 +1080,9 @@ def main():
 
     # ── PART B: Tighter stop comparison ──────────────────────────────────────
     stop_configs = [
-        ("stop_10pct", dict(filter_mode="none", stop_pct=0.10)),
-        ("stop_7pct",  dict(filter_mode="none", stop_pct=0.07)),
-        ("stop_5pct",  dict(filter_mode="none", stop_pct=0.05)),
+        ("stop_10pct", dict(reentry_mode="cap1", filter_mode="none", stop_pct=0.10)),
+        ("stop_7pct",  dict(reentry_mode="cap1", filter_mode="none", stop_pct=0.07)),
+        ("stop_5pct",  dict(reentry_mode="cap1", filter_mode="none", stop_pct=0.05)),
     ]
 
     print("  Running Part B: tighter stops …")
@@ -1102,17 +1105,17 @@ def main():
         print(f"{'═'*88}")
 
     print_table(filter_results,
-        "PART A — Entry Filters  (StopRate = % of completed trades stopped out)")
+        "PART A — Entry Filters  [baseline = 1 entry only, no re-entry]")
     print_table(stop_results,
-        "PART B — Tighter Stop %  (reduces loss magnitude per stopped trade)")
+        "PART B — Tighter Stop %  [1 entry only, no filters]")
 
     print(f"\n  Legend (Part A):")
-    print(f"  baseline     = no filters")
+    print(f"  All Part A modes use 1 entry only (no re-entry after stop)")
+    print(f"  no_filter    = no entry filter (pure cap1 baseline)")
     print(f"  early_180d   = only enter within first 180 days of listing")
-    print(f"  entry1_only  = only take the first entry signal per IPO")
     print(f"  regime_nifty = only enter when NIFTYBEES > 50-day SMA (bull market)")
     print(f"  bullcandle   = only enter when close is in upper 50% of day's range")
-    print(f"  combo        = early + entry1 + regime combined")
+    print(f"  combo        = early_180d + regime_nifty combined")
     print(f"\n  Legend (Part B):")
     print(f"  stop_10pct   = hard stop 10% below entry (baseline)")
     print(f"  stop_7pct    = hard stop 7% below entry")
