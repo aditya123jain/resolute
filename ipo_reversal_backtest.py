@@ -5,8 +5,9 @@ IPO Reversal Strategy — Full Backtest
 Universe  : NSE Mainboard IPOs, FY20-FY27 (Apr 2019 – Mar 2027), ~402 names
 Entry     : First trading day where intraday HIGH >= trailing_all-time_low × 1.10
 Fill      : CLOSE of entry day  (user spec)
-Stop      : Entry × 0.90 — checked against intraday LOW each post-entry day
+Stop      : TRAILING 10% — stop = max(stop, today_close × 0.90) updated daily
 Exit      : CLOSE of first trading day on/after listing-date anniversary
+Opt #1    : Trailing stop replaces fixed 10% stop (locks in gains as price rises)
 Data      : Yahoo Finance daily OHLC (NSE bhavcopy fallback for YF-absent symbols)
 Author    : Claude (Sonnet 4.6) — 27 Jun 2026
 """
@@ -652,9 +653,9 @@ def fetch_ohlc(symbol: str, start: date, end: date, retries: int = 3) -> pd.Data
 def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict]:
     """
     Apply IPO Reversal rules with unlimited re-entries after each stop-loss.
-
-    After a stop fires the trailing-low tracker resets to infinity and the
-    scanner picks up from the stop day, looking for the next 10% bounce setup.
+    OPTIMISATION #1: Trailing stop — stop ratchets up to close×0.90 each day,
+    locking in gains as price rises. Return on a stopped trade reflects actual
+    exit vs entry (no longer always −10%).
     Returns a list of trade dicts (one per entry; multiple when re-entries occur).
     """
     base = {"symbol": symbol, "listing_date": listing_date}
@@ -676,7 +677,7 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
     while scan_from < len(df):
         # ── Phase 1: find next entry trigger ────────────────────────────────
         entry_idx  = None
-        entry_date = entry_price = stop_price = None
+        entry_date = entry_price = trail_stop = None
 
         for i in range(scan_from, len(df)):
             row = df.iloc[i]
@@ -688,7 +689,7 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
                 entry_idx   = i
                 entry_date  = d
                 entry_price = float(row["close"])
-                stop_price  = entry_price * 0.90
+                trail_stop  = entry_price * 0.90   # initial stop = entry × 0.90
                 break
 
         if entry_idx is None:
@@ -697,7 +698,7 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
         entry_num    += 1
         days_to_entry = (entry_date - listing_date).days
 
-        # ── Phase 2: hold until stop or anniversary ──────────────────────────
+        # ── Phase 2: hold until trailing stop hit or anniversary ────────────
         exited = False
         for i in range(entry_idx + 1, len(df)):
             row = df.iloc[i]
@@ -705,16 +706,20 @@ def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict
             lo  = float(row["low"])
             cl  = float(row["close"])
 
-            if lo <= stop_price:
+            # Ratchet stop up — never moves down
+            trail_stop = max(trail_stop, cl * 0.90)
+
+            if lo <= trail_stop:
+                ret = trail_stop / entry_price - 1
                 trades.append({**base,
                     "entry_num":    entry_num,
                     "status":       "stop_hit",
                     "entry_date":   entry_date,
                     "entry_price":  round(entry_price, 2),
-                    "stop_price":   round(stop_price, 2),
+                    "stop_price":   round(trail_stop, 2),
                     "exit_date":    d,
-                    "exit_price":   round(stop_price, 2),
-                    "return_pct":   -10.0,
+                    "exit_price":   round(trail_stop, 2),
+                    "return_pct":   round(ret * 100, 2),
                     "days_to_entry": days_to_entry,
                     "days_held":    (d - entry_date).days,
                 })
@@ -789,11 +794,12 @@ def main():
     prefetch_bhav(ipos_dates)
 
     print(f"\n{'═'*70}")
-    print(f"  IPO REVERSAL STRATEGY — BACKTEST  (with re-entry after stop)")
+    print(f"  IPO REVERSAL STRATEGY — BACKTEST  (Opt #1: Trailing Stop)")
     print(f"  Universe : NSE Mainboard IPOs FY20-FY27 (Apr 2019–Mar 2027)  ({total} names)")
     print(f"  Run date : {TODAY}")
     print(f"  Rules    : Entry HIGH≥trailing_low×1.10 → fill CLOSE")
-    print(f"             Stop = Entry×0.90 | Re-enter after stop | Exit = anniversary close")
+    print(f"             Stop = TRAILING 10% (max(stop, close×0.90)) | Re-enter after stop")
+    print(f"             Exit = anniversary close")
     print(f"{'═'*70}\n")
     print(f"{'#':>4}  {'Symbol':<14} {'Listed':<12} {'E#':>2}  {'Status':<22} {'Return':>8}  {'Days held':>9}")
     print(f"{'─'*74}")
