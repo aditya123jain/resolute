@@ -649,109 +649,122 @@ def fetch_ohlc(symbol: str, start: date, end: date, retries: int = 3) -> pd.Data
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> dict:
+def backtest_one(symbol: str, listing_date: date, df: pd.DataFrame) -> list[dict]:
     """
-    Apply IPO Reversal rules to one stock.
-    Returns a result dict with 'status' key.
+    Apply IPO Reversal rules with unlimited re-entries after each stop-loss.
+
+    After a stop fires the trailing-low tracker resets to infinity and the
+    scanner picks up from the stop day, looking for the next 10% bounce setup.
+    Returns a list of trade dicts (one per entry; multiple when re-entries occur).
     """
     base = {"symbol": symbol, "listing_date": listing_date}
+
     if df.empty:
-        return {**base, "status": "no_data"}
+        return [{**base, "status": "no_data"}]
 
     anniversary = add_one_year(listing_date)
-
-    # Clip data from listing date onwards
     df = df[df["date"].dt.date >= listing_date].copy().reset_index(drop=True)
+
     if len(df) < 3:
-        return {**base, "status": "no_data"}
+        return [{**base, "status": "no_data"}]
 
-    # ── Phase 1 : scan for entry trigger ────────────────────────────────────
-    trailing_low = float("inf")
-    entry_date = entry_price = stop_price = None
-    days_to_entry = None
+    trades:      list[dict] = []
+    trailing_low             = float("inf")
+    scan_from                = 0        # row index to start next entry scan
+    entry_num                = 0
 
-    for _, row in df.iterrows():
-        today      = row["date"].date()
-        today_low  = float(row["low"])
-        today_high = float(row["high"])
-        today_close= float(row["close"])
+    while scan_from < len(df):
+        # ── Phase 1: find next entry trigger ────────────────────────────────
+        entry_idx  = None
+        entry_date = entry_price = stop_price = None
 
-        # Step 1: update trailing low (using intraday low)
-        trailing_low = min(trailing_low, today_low)
-        trigger_lvl  = trailing_low * 1.10
+        for i in range(scan_from, len(df)):
+            row = df.iloc[i]
+            d   = row["date"].date()
+            if d >= anniversary:
+                break
+            trailing_low = min(trailing_low, float(row["low"]))
+            if float(row["high"]) >= trailing_low * 1.10:
+                entry_idx   = i
+                entry_date  = d
+                entry_price = float(row["close"])
+                stop_price  = entry_price * 0.90
+                break
 
-        if today >= anniversary:
-            break           # anniversary passed with no trigger
+        if entry_idx is None:
+            break   # no further entry possible before anniversary
 
-        # Step 2: check if high touched/crossed trigger level this day
-        if today_high >= trigger_lvl:
-            entry_date    = today
-            entry_price   = today_close      # fill at CLOSE per spec
-            stop_price    = entry_price * 0.90
-            days_to_entry = (entry_date - listing_date).days
+        entry_num    += 1
+        days_to_entry = (entry_date - listing_date).days
+
+        # ── Phase 2: hold until stop or anniversary ──────────────────────────
+        exited = False
+        for i in range(entry_idx + 1, len(df)):
+            row = df.iloc[i]
+            d   = row["date"].date()
+            lo  = float(row["low"])
+            cl  = float(row["close"])
+
+            if lo <= stop_price:
+                trades.append({**base,
+                    "entry_num":    entry_num,
+                    "status":       "stop_hit",
+                    "entry_date":   entry_date,
+                    "entry_price":  round(entry_price, 2),
+                    "stop_price":   round(stop_price, 2),
+                    "exit_date":    d,
+                    "exit_price":   round(stop_price, 2),
+                    "return_pct":   -10.0,
+                    "days_to_entry": days_to_entry,
+                    "days_held":    (d - entry_date).days,
+                })
+                # Reset for re-entry: resume scan from the stop day
+                trailing_low = float("inf")
+                scan_from    = i
+                exited       = True
+                break
+
+            if d >= anniversary:
+                ret = cl / entry_price - 1
+                trades.append({**base,
+                    "entry_num":    entry_num,
+                    "status":       "survived_positive" if ret > 0 else "survived_negative",
+                    "entry_date":   entry_date,
+                    "entry_price":  round(entry_price, 2),
+                    "exit_date":    d,
+                    "exit_price":   round(cl, 2),
+                    "return_pct":   round(ret * 100, 2),
+                    "days_to_entry": days_to_entry,
+                    "days_held":    (d - entry_date).days,
+                })
+                scan_from = len(df)   # mark as fully done
+                exited    = True
+                break
+
+        if not exited:
+            # Ran out of data while still in trade → open/active
+            last    = df.iloc[-1]
+            last_cl = float(last["close"])
+            unreal  = last_cl / entry_price - 1
+            trades.append({**base,
+                "entry_num":    entry_num,
+                "status":       "active",
+                "entry_date":   entry_date,
+                "entry_price":  round(entry_price, 2),
+                "last_date":    last["date"].date(),
+                "last_price":   round(last_cl, 2),
+                "return_pct":   round(unreal * 100, 2),
+                "days_to_entry": days_to_entry,
+                "days_held":    (last["date"].date() - entry_date).days,
+            })
             break
 
-    if entry_date is None:
-        return {**base, "status": "no_trigger",
-                "days_observed": (df["date"].dt.date.iloc[-1] - listing_date).days}
+    if not trades:
+        last_d = df["date"].dt.date.iloc[-1]
+        return [{**base, "status": "no_trigger",
+                 "days_observed": (last_d - listing_date).days}]
 
-    # ── Phase 2 : monitor from entry+1 day to anniversary ───────────────────
-    post = df[df["date"].dt.date > entry_date].copy()
-
-    for _, row in post.iterrows():
-        today      = row["date"].date()
-        today_low  = float(row["low"])
-        today_close= float(row["close"])
-
-        # Stop check (intraday low hits stop)
-        if today_low <= stop_price:
-            return {
-                **base,
-                "status":        "stop_hit",
-                "entry_date":    entry_date,
-                "entry_price":   round(entry_price, 2),
-                "stop_price":    round(stop_price, 2),
-                "exit_date":     today,
-                "exit_price":    round(stop_price, 2),
-                "return_pct":    round((stop_price / entry_price - 1) * 100, 2),
-                "days_to_entry": days_to_entry,
-                "days_held":     (today - entry_date).days,
-            }
-
-        # Anniversary exit
-        if today >= anniversary:
-            ret = today_close / entry_price - 1
-            return {
-                **base,
-                "status":        "survived_positive" if ret > 0 else "survived_negative",
-                "entry_date":    entry_date,
-                "entry_price":   round(entry_price, 2),
-                "exit_date":     today,
-                "exit_price":    round(today_close, 2),
-                "return_pct":    round(ret * 100, 2),
-                "days_to_entry": days_to_entry,
-                "days_held":     (today - entry_date).days,
-            }
-
-    # Still within 1-year window → active trade
-    if not post.empty:
-        last       = post.iloc[-1]
-        last_close = float(last["close"])
-    else:
-        last       = df.iloc[-1]
-        last_close = float(last["close"])
-    unreal = last_close / entry_price - 1
-    return {
-        **base,
-        "status":             "active",
-        "entry_date":         entry_date,
-        "entry_price":        round(entry_price, 2),
-        "last_date":          last["date"].date(),
-        "last_price":         round(last_close, 2),
-        "return_pct":         round(unreal * 100, 2),
-        "days_to_entry":      days_to_entry,
-        "days_held":          (last["date"].date() - entry_date).days,
-    }
+    return trades
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -769,80 +782,133 @@ def print_section(title):
 
 
 def main():
-    ipos = STATIC_IPOS
+    ipos  = STATIC_IPOS
     total = len(ipos)
 
-    # Pre-download NSE bhavcopy for symbols absent from Yahoo Finance
     ipos_dates = [(sym, datetime.strptime(ld_str, "%Y-%m-%d").date()) for sym, ld_str in ipos]
     prefetch_bhav(ipos_dates)
 
     print(f"\n{'═'*70}")
-    print(f"  IPO REVERSAL STRATEGY — BACKTEST")
+    print(f"  IPO REVERSAL STRATEGY — BACKTEST  (with re-entry after stop)")
     print(f"  Universe : NSE Mainboard IPOs FY20-FY27 (Apr 2019–Mar 2027)  ({total} names)")
     print(f"  Run date : {TODAY}")
-    print(f"  Rules    : Entry trigger HIGH≥low×1.10 → fill CLOSE")
-    print(f"             Stop = Entry×0.90 | Exit = Listing anniversary close")
+    print(f"  Rules    : Entry HIGH≥trailing_low×1.10 → fill CLOSE")
+    print(f"             Stop = Entry×0.90 | Re-enter after stop | Exit = anniversary close")
     print(f"{'═'*70}\n")
-    print(f"{'#':>4}  {'Symbol':<14} {'Listed':<12} {'Status':<22} {'Return':>8}  {'Days held':>9}")
-    print(f"{'─'*70}")
+    print(f"{'#':>4}  {'Symbol':<14} {'Listed':<12} {'E#':>2}  {'Status':<22} {'Return':>8}  {'Days held':>9}")
+    print(f"{'─'*74}")
 
-    results = []
+    all_trades: list[dict] = []
+    ipo_flags:  dict       = {}   # (sym, ld_str): "no_data"|"no_trigger"|"triggered"
+
     for i, (sym, ld_str) in enumerate(ipos, 1):
-        ld      = datetime.strptime(ld_str, "%Y-%m-%d").date()
-        anniv   = add_one_year(ld)
-        end_dt  = min(anniv + timedelta(days=15), TODAY)
-        df      = fetch_ohlc(sym, ld, end_dt)
-        result  = backtest_one(sym, ld, df)
-        results.append(result)
+        ld     = datetime.strptime(ld_str, "%Y-%m-%d").date()
+        anniv  = add_one_year(ld)
+        end_dt = min(anniv + timedelta(days=15), TODAY)
+        df     = fetch_ohlc(sym, ld, end_dt)
+        trades = backtest_one(sym, ld, df)
 
-        st  = result.get("status", "?")
-        ret = fmt(result.get("return_pct"), width=7) if "return_pct" in result else "      —"
-        dh  = str(result.get("days_held", "—"))
-        print(f"{i:>4}  {sym:<14} {ld_str:<12} {st:<22} {ret}  {dh:>9}")
+        statuses = {t["status"] for t in trades}
+        if statuses == {"no_data"}:
+            ipo_flags[(sym, ld_str)] = "no_data"
+        elif statuses == {"no_trigger"}:
+            ipo_flags[(sym, ld_str)] = "no_trigger"
+        else:
+            ipo_flags[(sym, ld_str)] = "triggered"
+
+        all_trades.extend(trades)
+
+        # Print first trade on the IPO row; subsequent trades indented
+        for t_idx, t in enumerate(trades):
+            en  = t.get("entry_num", "—")
+            st  = t["status"]
+            ret = fmt(t["return_pct"]) if "return_pct" in t else "      —"
+            dh  = str(t.get("days_held", "—"))
+            if t_idx == 0:
+                print(f"{i:>4}  {sym:<14} {ld_str:<12} {str(en):>2}  {st:<22} {ret}  {dh:>9}")
+            else:
+                print(f"{'':>4}  {'':>14} {'':>12} {str(en):>2}  {st:<22} {ret}  {dh:>9}")
+
         time.sleep(0.12)
 
-    # ── Save raw results ─────────────────────────────────────────────────────
-    df_all = pd.DataFrame(results)
+    # ── Save all trades ───────────────────────────────────────────────────────
+    df_all = pd.DataFrame(all_trades)
     df_all.to_csv("ipo_reversal_results.csv", index=False)
 
-    # ── Partition ────────────────────────────────────────────────────────────
-    no_data    = df_all[df_all["status"] == "no_data"]
-    no_trigger = df_all[df_all["status"] == "no_trigger"]
-    active     = df_all[df_all["status"] == "active"]
-    stop_hit   = df_all[df_all["status"] == "stop_hit"]
-    surv_neg   = df_all[df_all["status"] == "survived_negative"]
-    surv_pos   = df_all[df_all["status"] == "survived_positive"]
-    triggered  = df_all[df_all["status"].isin(["stop_hit", "survived_negative", "survived_positive"])]
+    # ── IPO-level counts (for coverage stats) ────────────────────────────────
+    n_ipos_total    = total
+    n_ipos_no_data  = sum(1 for v in ipo_flags.values() if v == "no_data")
+    n_ipos_no_trig  = sum(1 for v in ipo_flags.values() if v == "no_trigger")
+    n_ipos_with_data= n_ipos_total - n_ipos_no_data
 
-    n_total    = len(df_all)
-    n_no_data  = len(no_data)
-    n_with_data= n_total - n_no_data
-    n_trig     = len(triggered)
-    n_active   = len(active)
+    # ── Trade-level partitions ────────────────────────────────────────────────
+    stop_hit  = df_all[df_all["status"] == "stop_hit"]
+    surv_neg  = df_all[df_all["status"] == "survived_negative"]
+    surv_pos  = df_all[df_all["status"] == "survived_positive"]
+    active    = df_all[df_all["status"] == "active"]
+    triggered = df_all[df_all["status"].isin(["stop_hit", "survived_negative", "survived_positive"])]
 
-    # ── Summary ──────────────────────────────────────────────────────────────
-    print_section("UNIVERSE & COVERAGE")
-    print(f"  Total IPOs in universe       : {n_total:>5}")
-    print(f"  No data (symbol not found)   : {n_no_data:>5}")
-    print(f"  IPOs with data               : {n_with_data:>5}")
-    print(f"  No trigger within 1 year     : {len(no_trigger):>5}  (setup never appeared)")
-    print(f"  Active (anniversary pending) : {n_active:>5}")
-    print(f"  Completed triggered trades   : {n_trig:>5}")
-    if n_with_data > 0:
-        cov = (n_trig + n_active) / n_with_data
-        print(f"\n  ► Coverage rate              : {cov*100:.1f}%  "
-              f"(fraction where 10% bounce setup appeared)")
+    n_trig   = len(triggered)
+    n_active = len(active)
+
+    # ── Universe & coverage ───────────────────────────────────────────────────
+    print_section("UNIVERSE & COVERAGE  (IPO level)")
+    print(f"  Total IPOs in universe       : {n_ipos_total:>5}")
+    print(f"  No data (symbol not found)   : {n_ipos_no_data:>5}")
+    print(f"  IPOs with data               : {n_ipos_with_data:>5}")
+    print(f"  No trigger within 1 year     : {n_ipos_no_trig:>5}  (setup never appeared)")
+    n_ipos_active = df_all[df_all["status"]=="active"]["symbol"].nunique()
+    print(f"  IPOs with open active trade  : {n_ipos_active:>5}")
+
+    print_section("TRADE TOTALS  (trade level, re-entries counted separately)")
+    print(f"  Total completed trades       : {n_trig:>5}")
+    print(f"  — Stop-loss exits            : {len(stop_hit):>5}")
+    print(f"  — Survived to anniversary    : {len(surv_pos)+len(surv_neg):>5}  "
+          f"({len(surv_pos)} positive, {len(surv_neg)} negative)")
+    print(f"  Open / active trades         : {n_active:>5}")
+    if n_ipos_with_data > 0:
+        print(f"\n  ► IPO coverage               : "
+              f"{(n_ipos_with_data-n_ipos_no_trig)/n_ipos_with_data*100:.1f}%  "
+              f"(IPOs where setup appeared at least once)")
 
     if n_trig == 0:
         print("\n  No completed trades to analyse.")
         return
 
-    # ── Outcome distribution ─────────────────────────────────────────────────
-    print_section("OUTCOME DISTRIBUTION  (completed triggered trades)")
-    p_stop   = len(stop_hit) / n_trig
-    p_sn     = len(surv_neg) / n_trig
-    p_sp     = len(surv_pos) / n_trig
-    p_loss   = p_stop + p_sn
+    # ── Re-entry analysis ─────────────────────────────────────────────────────
+    if "entry_num" in df_all.columns:
+        print_section("RE-ENTRY ANALYSIS")
+        max_entries = int(df_all["entry_num"].max())
+        ipo_entry_counts = (
+            df_all.groupby(["symbol", "listing_date"])["entry_num"].max()
+        )
+        avg_entries = ipo_entry_counts.mean()
+        ipos_with_reentry = (ipo_entry_counts > 1).sum()
+        print(f"  IPOs with ≥1 re-entry        : {ipos_with_reentry:>5}  "
+              f"(out of {n_ipos_with_data - n_ipos_no_trig} that triggered)")
+        print(f"  Avg entries per triggered IPO: {avg_entries:>7.2f}")
+        print(f"  Max entries for one IPO      : {max_entries:>5}")
+        print(f"\n  Distribution (entries per IPO):")
+        dist = ipo_entry_counts.value_counts().sort_index()
+        for n_e, cnt in dist.items():
+            print(f"    {int(n_e):>2} entry/entries : {cnt:>4} IPOs")
+
+        # Performance by entry number
+        print(f"\n  Return by entry number (completed trades only):")
+        print(f"  {'Entry#':<8} {'N':>5}  {'Win%':>6}  {'Avg ret':>9}  {'Med ret':>9}")
+        for en in range(1, max_entries + 1):
+            sub = triggered[triggered["entry_num"] == en]["return_pct"]
+            sub = pd.to_numeric(sub, errors="coerce").dropna()
+            if len(sub) == 0:
+                continue
+            print(f"  {en:<8} {len(sub):>5}  {(sub>0).mean()*100:>5.1f}%  "
+                  f"{sub.mean():>+8.1f}%  {sub.median():>+8.1f}%")
+
+    # ── Outcome distribution ──────────────────────────────────────────────────
+    print_section("OUTCOME DISTRIBUTION  (all completed trades)")
+    p_stop = len(stop_hit) / n_trig
+    p_sn   = len(surv_neg) / n_trig
+    p_sp   = len(surv_pos) / n_trig
 
     def avg(subset, col="return_pct"):
         s = pd.to_numeric(subset[col], errors="coerce").dropna()
@@ -852,17 +918,17 @@ def main():
         s = pd.to_numeric(subset[col], errors="coerce").dropna()
         return s.median() if len(s) else np.nan
 
-    print(f"\n  {'Bucket':<28} {'N':>4}  {'Share':>6}  {'Avg Ret':>9}  {'Median Ret':>11}")
-    print(f"  {'─'*62}")
-    print(f"  {'Stop-loss hit':<28} {len(stop_hit):>4}  {p_stop*100:>5.1f}%  {avg(stop_hit):>+8.1f}%  {med(stop_hit):>+10.1f}%")
-    print(f"  {'Survived, negative':<28} {len(surv_neg):>4}  {p_sn*100:>5.1f}%  {avg(surv_neg):>+8.1f}%  {med(surv_neg):>+10.1f}%")
-    print(f"  {'Survived, positive':<28} {len(surv_pos):>4}  {p_sp*100:>5.1f}%  {avg(surv_pos):>+8.1f}%  {med(surv_pos):>+10.1f}%")
-    print(f"  {'─'*62}")
-    print(f"  {'TOTAL LOSS PROBABILITY':<28} {'':>4}  {p_loss*100:>5.1f}%")
-    print(f"  {'WIN RATE (survived+ve)':<28} {'':>4}  {p_sp*100:>5.1f}%")
+    print(f"\n  {'Bucket':<28} {'N':>5}  {'Share':>6}  {'Avg Ret':>9}  {'Median Ret':>11}")
+    print(f"  {'─'*64}")
+    print(f"  {'Stop-loss hit':<28} {len(stop_hit):>5}  {p_stop*100:>5.1f}%  {avg(stop_hit):>+8.1f}%  {med(stop_hit):>+10.1f}%")
+    print(f"  {'Survived, negative':<28} {len(surv_neg):>5}  {p_sn*100:>5.1f}%  {avg(surv_neg):>+8.1f}%  {med(surv_neg):>+10.1f}%")
+    print(f"  {'Survived, positive':<28} {len(surv_pos):>5}  {p_sp*100:>5.1f}%  {avg(surv_pos):>+8.1f}%  {med(surv_pos):>+10.1f}%")
+    print(f"  {'─'*64}")
+    print(f"  {'TOTAL LOSS RATE':<28} {'':>5}  {(p_stop+p_sn)*100:>5.1f}%")
+    print(f"  {'WIN RATE (survived+ve)':<28} {'':>5}  {p_sp*100:>5.1f}%")
 
-    # ── Return statistics ────────────────────────────────────────────────────
-    print_section("RETURN STATISTICS  (all completed triggered trades)")
+    # ── Return statistics ─────────────────────────────────────────────────────
+    print_section("RETURN STATISTICS  (all completed trades)")
     all_ret = pd.to_numeric(triggered["return_pct"], errors="coerce").dropna()
     days_h  = pd.to_numeric(triggered["days_held"],  errors="coerce").dropna()
 
@@ -871,83 +937,67 @@ def main():
     print(f"  Best trade              : {all_ret.max():>+7.1f}%")
     print(f"  Worst trade             : {all_ret.min():>+7.1f}%")
     print(f"  Std deviation           : {all_ret.std():>7.1f}%")
-
-    # Return percentile bands
     p10, p25, p75, p90 = all_ret.quantile([0.10, 0.25, 0.75, 0.90])
     print(f"  10th / 25th percentile  : {p10:>+7.1f}% / {p25:>+7.1f}%")
     print(f"  75th / 90th percentile  : {p75:>+7.1f}% / {p90:>+7.1f}%")
     print(f"  Avg holding period      : {days_h.mean():>6.0f} days")
-
-    # CAGR proxy (average holding ~1 year, so return ≈ CAGR)
     avg_hold_yr = days_h.mean() / 365
     if avg_hold_yr > 0:
         cagr_proxy = (1 + all_ret.mean() / 100) ** (1 / avg_hold_yr) - 1
         print(f"  CAGR (annualised mean)  : {cagr_proxy*100:>+7.1f}%")
 
-    # ── Stop-loss timing distribution ────────────────────────────────────────
+    # ── Stop-loss timing ──────────────────────────────────────────────────────
     if len(stop_hit) > 0:
-        print_section(f"STOP-LOSS TIMING  (n={len(stop_hit)} stops fired)")
+        print_section(f"STOP-LOSS TIMING  (n={len(stop_hit)} stops)")
         sd = pd.to_numeric(stop_hit["days_held"], errors="coerce").dropna()
-        dte_entry = pd.to_numeric(stop_hit["days_to_entry"], errors="coerce").dropna()
         q1, q2, q3 = sd.quantile([0.25, 0.50, 0.75])
-        print(f"  Days from ENTRY to stop:")
-        print(f"    Min / Max           : {sd.min():.0f} / {sd.max():.0f} days")
-        print(f"    Mean / Median       : {sd.mean():.0f} / {sd.median():.0f} days")
-        print(f"    Q1 / Q2 / Q3        : {q1:.0f} / {q2:.0f} / {q3:.0f} days")
-        print(f"  Avg days listing→entry: {dte_entry.mean():.0f} days")
-
-        # Bucket: stopped within <30d, 30-90d, 90-180d, >180d
-        b = [(0,30,"< 30 d"),(30,90,"30-90 d"),(90,180,"90-180 d"),(180,9999,">180 d")]
-        print(f"\n  Timing buckets (days from entry):")
-        for lo, hi, label in b:
+        print(f"  Min / Max           : {sd.min():.0f} / {sd.max():.0f} days from entry")
+        print(f"  Mean / Median       : {sd.mean():.0f} / {sd.median():.0f} days")
+        print(f"  Q1 / Q2 / Q3        : {q1:.0f} / {q2:.0f} / {q3:.0f} days")
+        print(f"\n  Timing buckets:")
+        for lo, hi, label in [(0,30,"< 30 d"),(30,90,"30-90 d"),(90,180,"90-180 d"),(180,9999,">180 d")]:
             n = ((sd >= lo) & (sd < hi)).sum()
-            print(f"    {label:<12}: {n:>3}  ({n/len(sd)*100:.0f}%)")
+            print(f"    {label:<12}: {n:>4}  ({n/len(sd)*100:.0f}%)")
 
-    # ── Days-to-entry distribution ───────────────────────────────────────────
-    print_section("DAYS FROM LISTING TO ENTRY  (all triggered)")
+    # ── Days-to-entry ─────────────────────────────────────────────────────────
+    print_section("DAYS FROM LISTING TO ENTRY  (all completed trades)")
     dte_all = pd.to_numeric(triggered["days_to_entry"], errors="coerce").dropna()
-    print(f"  Mean / Median           : {dte_all.mean():.0f} / {dte_all.median():.0f} days")
-    print(f"  Min / Max               : {dte_all.min():.0f} / {dte_all.max():.0f} days")
+    print(f"  Mean / Median : {dte_all.mean():.0f} / {dte_all.median():.0f} days")
+    print(f"  Min / Max     : {dte_all.min():.0f} / {dte_all.max():.0f} days")
     for lo, hi, label in [(0,30,"< 30 d"),(30,90,"30-90 d"),(90,180,"90-180 d"),(180,365,">180 d")]:
         n = ((dte_all >= lo) & (dte_all < hi)).sum()
-        print(f"  {label:<12}: {n:>3}  ({n/len(dte_all)*100:.0f}%)")
+        print(f"  {label:<12}: {n:>4}  ({n/len(dte_all)*100:.0f}%)")
 
-    # ── Top performers & worst losers ────────────────────────────────────────
+    # ── Top / bottom trades ───────────────────────────────────────────────────
+    cols = ["symbol", "listing_date", "entry_num", "entry_date", "entry_price", "exit_price", "return_pct", "days_held"]
+    avail = [c for c in cols if c in triggered.columns]
     print_section("TOP 10 WINNERS")
-    top10 = triggered.nlargest(10, "return_pct")[
-        ["symbol", "listing_date", "entry_date", "entry_price", "exit_price", "return_pct", "days_held"]
-    ]
-    print(top10.to_string(index=False))
-
+    print(triggered.nlargest(10, "return_pct")[avail].to_string(index=False))
     print_section("TOP 10 LOSERS")
-    bot10 = triggered.nsmallest(10, "return_pct")[
-        ["symbol", "listing_date", "entry_date", "entry_price", "exit_price", "return_pct", "days_held"]
-    ]
-    print(bot10.to_string(index=False))
+    print(triggered.nsmallest(10, "return_pct")[avail].to_string(index=False))
 
-    # ── Active trades ────────────────────────────────────────────────────────
+    # ── Active trades ─────────────────────────────────────────────────────────
     if n_active > 0:
-        print_section(f"ACTIVE TRADES (n={n_active}, anniversary not yet reached)")
+        print_section(f"ACTIVE TRADES  (n={n_active})")
         act_ret = pd.to_numeric(active["return_pct"], errors="coerce").dropna()
-        print(f"  Mean unrealised return  : {act_ret.mean():>+7.1f}%")
-        print(f"  Median unrealised return: {act_ret.median():>+7.1f}%")
-        act_cols = [c for c in ["symbol","listing_date","entry_date","entry_price","last_price","return_pct","days_held"] if c in active.columns]
+        print(f"  Mean unrealised : {act_ret.mean():>+7.1f}%  |  Median : {act_ret.median():>+7.1f}%")
+        act_cols = [c for c in ["symbol","listing_date","entry_num","entry_date","entry_price","last_price","return_pct","days_held"] if c in active.columns]
         print(active[act_cols].to_string(index=False))
 
-    # ── Year-by-year cohort ──────────────────────────────────────────────────
-    print_section("YEAR-BY-YEAR COHORT  (completed triggered only)")
-    triggered2 = triggered.copy()
-    triggered2["year"] = pd.to_datetime(triggered2["listing_date"]).dt.year
-    cohort = (triggered2.groupby("year")
-              .agg(n=("return_pct","count"),
-                   mean_ret=("return_pct","mean"),
-                   median_ret=("return_pct","median"),
-                   win_pct=("return_pct", lambda x: (x > 0).mean() * 100))
-              .reset_index())
+    # ── Year-by-year cohort ───────────────────────────────────────────────────
+    print_section("YEAR-BY-YEAR COHORT  (completed trades, grouped by listing year)")
+    t2 = triggered.copy()
+    t2["year"] = pd.to_datetime(t2["listing_date"]).dt.year
+    cohort = (t2.groupby("year")
+               .agg(trades=("return_pct","count"),
+                    mean_ret=("return_pct","mean"),
+                    median_ret=("return_pct","median"),
+                    win_pct=("return_pct", lambda x: (x > 0).mean() * 100))
+               .reset_index())
     print(cohort.to_string(index=False))
 
     print(f"\n{'═'*70}")
-    print(f"  Results saved → ipo_reversal_results.csv")
+    print(f"  Results saved → ipo_reversal_results.csv  ({len(df_all)} trade rows)")
     print(f"{'═'*70}\n")
 
 
