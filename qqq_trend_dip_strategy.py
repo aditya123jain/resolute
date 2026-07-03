@@ -32,6 +32,14 @@ perturbations (SMA 100-300, RSI 5-20/50-80, vol target 25-45%, cap
 bootstrap, 10y paths): median CAGR ~16%, P(losing decade) ~3.5%,
 P(>50% drawdown in a decade) ~33% at 2x cap.
 
+Stop-loss note (DIP_STOP): measured across a 3%-15% stop grid on 10
+symbols over 26y, stops REDUCE the dip module's edge everywhere (QQQ
+avg/trade +0.69% -> +0.29% at 3%) and INCREASE its drawdown (QQQ -20% ->
+-44%), because they sell at the panic low; on blow-up-prone names
+(MSTR/BA/AMD) they don't rescue the strategy either — disasters gap
+through stops. Default is therefore None. The real risk controls are
+symbol selection (index ETFs / quality mega-caps only) and sizing.
+
 Usage:
   python qqq_trend_dip_strategy.py --backtest              # full history stats
   python qqq_trend_dip_strategy.py --signal                # today's target position
@@ -52,6 +60,8 @@ RSI_LEN = 2          # RSI period for dip detection
 RSI_BUY = 10         # enter dip trade below this
 RSI_EXIT = 60        # exit dip trade above this
 MAX_HOLD = 10        # max days to hold a dip trade
+DIP_STOP = None      # e.g. 0.10 = exit dip trade if close falls 10% below
+                     # entry. None (recommended) — see stop-loss note above.
 VOL_TARGET = 0.35    # annualized vol target for trend leg
 LEV_CAP = 2.0        # maximum leverage (set 1.0 for the defensive variant)
 BEAR_ASSET = "TLT"   # held in bear regime while above its own SMA
@@ -88,13 +98,15 @@ def build_positions(eq: pd.Series, bond: pd.Series | None) -> pd.DataFrame:
     n = len(eq)
 
     dip = np.zeros(n)
-    in_dip, held = False, 0
+    in_dip, held, entry_px = False, 0, 0.0
+    ev = eq.values
     for i in range(RSI_LEN + 3, n):
         if not in_dip and r[i] < RSI_BUY and below[i]:
-            in_dip, held = True, 0
+            in_dip, held, entry_px = True, 0, ev[i]
         elif in_dip:
             held += 1
-            if r[i] > RSI_EXIT or held >= MAX_HOLD:
+            stopped = DIP_STOP is not None and ev[i] <= entry_px * (1 - DIP_STOP)
+            if r[i] > RSI_EXIT or held >= MAX_HOLD or stopped:
                 in_dip = False
         dip[i] = float(in_dip)
     dip = pd.Series(dip, index=eq.index)
